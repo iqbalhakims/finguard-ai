@@ -1,0 +1,14 @@
+# Runtime dependencies for the inference service (kept lean: no MLflow / plotting)
+fastapi==0.162.7
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+numpy==2.5.4
+pandas==3.1.1
+scikit-learn==1.9.1
+xgboost==3.4.1; sys_platform != "linux"
+# CPU-only wheel on Linux: avoids pulling ~200 MB of CUDA libraries into the image
+xgboost-cpu==3.4.1; sys_platform == "linux"
+shap==0.54.1
+scipy==1.18.1
+joblib==1.6.0
+prometheus-client==0.26.0

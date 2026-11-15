@@ -1,0 +1,21 @@
+# For clusters running kube-prometheus-stack (Prometheus Operator) instead of the
+# bundled Prometheus. Apply after the main stack:
+#   kubectl -n finguard apply -f deploy/k8s/extras/servicemonitor.yaml -f deploy/k8s/extras/prometheusrule.yaml
+# The `release` label must match your operator's serviceMonitorSelector.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: finguard-api
+  namespace: finguard
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finguard-api
+  namespaceSelector:
+    matchNames: [finguard]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

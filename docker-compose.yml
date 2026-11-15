@@ -1,0 +1,107 @@
+# FinGuard local platform: API + traffic simulator + Prometheus + Grafana + MLflow.
+#
+#   make train            # produce artifacts/model first (baked into the image)
+#   docker compose up -d --build
+#
+#   API         http://localhost:8000/docs
+#   Grafana     http://localhost:3300   (anonymous viewer; admin/admin to edit)
+#   Prometheus  http://localhost:9095
+#   MLflow      http://localhost:5001   (tracking server; see README for logging to it)
+#
+# Host ports are overridable: API_PORT, GRAFANA_PORT, PROMETHEUS_PORT, MLFLOW_PORT.
+# Drift demo:   SIMULATOR_DRIFT=true docker compose up -d simulator
+
+name: finguard
+
+services:
+  api:
+    build: .
+    image: finguard-api:${FINGUARD_VERSION:-0.1.0}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      LOG_LEVEL: INFO
+      DRIFT_WINDOW_SIZE: "2000"
+      DRIFT_MIN_SAMPLES: "200"
+      DRIFT_CHECK_INTERVAL_SECONDS: "15"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+
+  simulator:
+    image: finguard-api:${FINGUARD_VERSION:-0.1.0}
+    command: ["python", "-m", "finguard.simulate"]
+    healthcheck:
+      disable: true   # the image's HEALTHCHECK targets the API, not the simulator
+    environment:
+      SIMULATOR_URL: http://api:8000
+      SIMULATOR_RPS: ${SIMULATOR_RPS:-10}
+      SIMULATOR_DRIFT: ${SIMULATOR_DRIFT:-false}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9095}:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.6
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/finguard.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3300}:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.18.0
+    environment:
+      # Background job runner is only used by GenAI features; disabling it saves ~2 GB RAM.
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=sqlite:////mlflow/mlflow.db
+      - --artifacts-destination=/mlflow/artifacts
+      - --serve-artifacts
+      - --allowed-hosts=*
+      - --workers=1
+    volumes:
+      - mlflow-data:/mlflow
+    ports:
+      - "${MLFLOW_PORT:-5001}:5000"   # host 5000 is taken by AirPlay on macOS
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  mlflow-data:
