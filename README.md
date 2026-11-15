@@ -218,9 +218,9 @@ What gets deployed (namespace `finguard`):
 
 | File | Contents |
 |---|---|
-| [main.tf](terraform/main.tf) | One DOKS cluster in **Singapore (`sgp1`)** on the latest 1.35 patch: **2 × `s-2vcpu-4gb`** nodes, standard (non-HA) control plane, and pulls from the `finai` registry without image pull secrets |
-| [variables.tf](terraform/variables.tf) | Region, cluster name, Kubernetes version, node size and count |
-| [outputs.tf](terraform/outputs.tf) | Cluster ID, API endpoint, kube context name, `doctl` kubeconfig command |
+| [main.tf](terraform/main.tf) | One DOKS cluster in **Singapore (`sgp1`)** on the latest 1.35 patch: **2 × `s-2vcpu-4gb`** nodes, standard (non-HA) control plane, and pulls from the `finai` registry without image pull secrets. Plus a **5 GiB block storage volume** (`finguard-prometheus`, ext4) for Prometheus |
+| [variables.tf](terraform/variables.tf) | Region, cluster name, Kubernetes version, node size and count, volume size |
+| [outputs.tf](terraform/outputs.tf) | Cluster ID, API endpoint, kube context name, `doctl` kubeconfig command, Prometheus volume ID |
 
 **One-time setup**
 
@@ -232,7 +232,7 @@ terraform init       # creates workspace "finguard-ai" in org "iqbal-hakim" if i
 
 In HCP, go to Workspace → **Variables** and add an **environment** variable
 `DIGITALOCEAN_TOKEN`, marked sensitive. Use a DO API token with write access to
-Kubernetes and read access to the registry. Then:
+Kubernetes and Block Storage, plus read access to the registry. Then:
 
 ```bash
 terraform plan       # runs remotely in HCP Terraform
@@ -243,9 +243,30 @@ doctl kubernetes cluster kubeconfig save finguard --set-current-context=false   
 `--set-current-context=false` leaves your current kubectl context untouched.
 Point the Makefile at the new cluster with `KUBE_CONTEXT=do-sgp1-finguard`.
 
-> `terraform destroy` removes the cluster but **not** DigitalOcean Load
-> Balancers or volumes created from inside Kubernetes. Delete `LoadBalancer`
-> Services and PVCs first.
+> `terraform destroy` removes the cluster **and the Prometheus volume (its metrics
+> history)**. It does not remove DigitalOcean Load Balancers or volumes created from
+> inside Kubernetes, so delete `LoadBalancer` Services and dynamically provisioned
+> PVCs first.
+
+### Deploying FinGuard to DOKS
+
+[overlays/doks/](overlays/doks/) builds on the base stack in `deploy/`. It sits
+outside `deploy/` because kustomize won't accept an overlay nested inside its own
+base. It changes three things:
+
+- **Image**: `registry.digitalocean.com/finai/finguard-api:<sha tag>` for the API and the simulator. Bump `newTag` to the CI tag you want to run.
+- **Prometheus storage**: a static PersistentVolume points at the Terraform-created volume through the DigitalOcean CSI driver, so Terraform owns the disk and Kubernetes only mounts it. Retention is 15 days, capped at 4 GB.
+- **Grafana password**: a random password generated locally into `overlays/doks/grafana.env` (gitignored), never `admin`.
+
+```bash
+make doks-secrets    # once: random Grafana admin password
+make doks-volume     # once, after terraform apply: writes the volume ID into the PersistentVolume
+make doks-deploy     # kubectl --context do-sgp1-finguard apply -k overlays/doks
+make doks-status     # pods, PVC/PV, services, HPA
+make doks-forward    # API :8080 · Grafana :3300 · Prometheus :9095
+```
+
+To log in to Grafana, use `admin` and the password in `overlays/doks/grafana.env`.
 
 If you connect the workspace to GitHub (VCS-driven runs) rather than using the CLI, set the workspace's **Terraform working directory** to `terraform`. Terraform-only commits don't trigger the image pipeline, because `terraform/**` is in its `paths-ignore`.
 
@@ -349,7 +370,8 @@ deploy/
 tests/                 processing leakage, features, drift, evaluation, API, SHAP additivity
 scripts/               CI model quality gate, PrometheusRule generator
 .github/               CI pipeline (test → train → gate → build → scan → push to DOCR), Dependabot
-terraform/             basic DOKS cluster in Singapore via HCP Terraform
+terraform/             basic DOKS cluster + Prometheus block storage volume via HCP Terraform
+overlays/doks/         kustomize overlay: DOCR image, Prometheus on the Terraform volume, Grafana secret
 ```
 
 ## Production gaps (deliberately out of scope)

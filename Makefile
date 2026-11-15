@@ -15,7 +15,8 @@ API_PORT         ?= 8000
 .DEFAULT_GOAL := help
 .PHONY: help setup data train drift-data drift-report test serve simulate simulate-drift mlflow-ui \
         pipeline docker-build up down compose-drift compose-baseline \
-        minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete prometheusrule
+        minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete prometheusrule \
+        doks-secrets doks-volume doks-deploy doks-status doks-forward
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -106,6 +107,35 @@ k8s-baseline: ## Switch the in-cluster simulator back to baseline traffic
 
 k8s-delete: ## Remove the FinGuard stack from the cluster
 	$(KUBECTL) delete -k deploy/ --ignore-not-found
+
+# ----------------------------------------------------------------------------- DOKS (terraform/ + overlays/doks)
+DOKS_CONTEXT ?= do-sgp1-finguard
+DOKS_OVERLAY := overlays/doks
+
+doks-secrets: ## Create a random Grafana admin password for the DOKS overlay (once)
+	@test -f $(DOKS_OVERLAY)/grafana.env || { \
+	  umask 077; printf 'password=%s\n' "$$(openssl rand -base64 24 | tr -d '/+=')" > $(DOKS_OVERLAY)/grafana.env; \
+	  echo "created $(DOKS_OVERLAY)/grafana.env (gitignored)"; }
+
+doks-volume: ## Put the Terraform-created Prometheus volume ID into the overlay (after terraform apply)
+	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-prometheus"{print $$1}'); \
+	test -n "$$id" || { echo "volume finguard-prometheus not found: run terraform apply first"; exit 1; }; \
+	sed -i.orig "s|volumeHandle: [^ ]*|volumeHandle: $$id|" $(DOKS_OVERLAY)/prometheus-storage.yaml && \
+	mv $(DOKS_OVERLAY)/prometheus-storage.yaml.orig /tmp/prometheus-storage.yaml.orig; \
+	echo "volumeHandle = $$id"
+
+doks-deploy: ## Deploy FinGuard to the DOKS cluster (context $(DOKS_CONTEXT))
+	@test -f $(DOKS_OVERLAY)/grafana.env || { echo "run 'make doks-secrets' first"; exit 1; }
+	@! grep -q REPLACE_WITH_PROMETHEUS_VOLUME_ID $(DOKS_OVERLAY)/prometheus-storage.yaml || { echo "run 'make doks-volume' first"; exit 1; }
+	kubectl --context $(DOKS_CONTEXT) apply -k $(DOKS_OVERLAY)
+	kubectl --context $(DOKS_CONTEXT) -n finguard rollout status deployment/finguard-api --timeout=300s
+
+doks-status: ## Pods, storage and HPA on DOKS
+	kubectl --context $(DOKS_CONTEXT) -n finguard get pods,pvc,svc,hpa
+	kubectl --context $(DOKS_CONTEXT) get pv finguard-prometheus
+
+doks-forward: ## Port-forward the DOKS deployment (API :8080, Grafana :3300, Prometheus :9095)
+	$(MAKE) k8s-forward KUBE_CONTEXT=$(DOKS_CONTEXT)
 
 prometheusrule: ## Regenerate deploy/k8s/extras/prometheusrule.yaml from alerts.yml
 	$(PY) scripts/gen_prometheusrule.py

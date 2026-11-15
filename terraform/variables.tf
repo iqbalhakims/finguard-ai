@@ -27,3 +27,9 @@ variable "node_count" {
   type        = number
   default     = 2
 }
+
+variable "prometheus_volume_size_gb" {
+  description = "Size of the Prometheus block storage volume (GiB)."
+  type        = number
+  default     = 5
+}

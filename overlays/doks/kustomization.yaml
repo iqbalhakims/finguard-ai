@@ -1,0 +1,33 @@
+# FinGuard on DOKS (cluster from terraform/). Builds on the base stack in deploy/.
+#
+#   make doks-secrets   # once: random Grafana admin password -> grafana.env (gitignored)
+#   make doks-deploy    # kubectl --context do-sgp1-finguard apply -k overlays/doks
+#
+# Differences from the base (minikube) stack:
+#   - API + simulator image from DOCR (pulled via the cluster's registry integration)
+#   - Prometheus stores its TSDB on the Terraform-managed block storage volume
+#   - Grafana admin password comes from a local, untracked env file
+#
+# This overlay lives outside deploy/ because kustomize refuses an overlay that is
+# nested inside its own base directory.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: finguard
+
+resources:
+  - ../../deploy
+  - prometheus-storage.yaml
+
+images:
+  - name: finguard-api
+    newName: registry.digitalocean.com/finai/finguard-api
+    newTag: sha-b24e480   # bump to the CI tag you want to run (sha-<commit>)
+
+patches:
+  - path: prometheus-patch.yaml
+
+secretGenerator:
+  - name: grafana-admin
+    behavior: replace
+    envs:
+      - grafana.env       # created by `make doks-secrets`; never committed

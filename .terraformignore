@@ -1,0 +1,22 @@
+# The HCP Terraform workspace is VCS-linked with working directory `terraform`,
+# so CLI runs (`terraform plan` from your machine) upload the repository root.
+# Keep those uploads to the Terraform code: exclude everything large or sensitive.
+# (VCS-driven runs only ever see git-tracked files.)
+.git/
+.venv/
+**/__pycache__/
+.pytest_cache/
+data/
+artifacts/
+mlruns/
+mlartifacts/
+mlflow.db
+reports/
+claude-memory/
+finguard/
+tests/
+deploy/
+overlays/
+scripts/
+.github/
+terraform/.terraform/
