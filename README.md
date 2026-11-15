@@ -218,9 +218,9 @@ What gets deployed (namespace `finguard`):
 
 | File | Contents |
 |---|---|
-| [main.tf](terraform/main.tf) | One DOKS cluster in **Singapore (`sgp1`)** on the latest 1.35 patch: **2 × `s-2vcpu-4gb`** nodes, standard (non-HA) control plane, and pulls from the `finai` registry without image pull secrets. Plus a **5 GiB block storage volume** (`finguard-prometheus`, ext4) for Prometheus |
+| [main.tf](terraform/main.tf) | One DOKS cluster in **Singapore (`sgp1`)** on the latest 1.35 patch: **2 × `s-2vcpu-4gb`** nodes, standard (non-HA) control plane, and pulls from the `finai` registry without image pull secrets. Plus block storage volumes: **5 GiB** for Prometheus metrics, **1 GiB** for Caddy's TLS certificates |
 | [variables.tf](terraform/variables.tf) | Region, cluster name, Kubernetes version, node size and count, volume size |
-| [outputs.tf](terraform/outputs.tf) | Cluster ID, API endpoint, kube context name, `doctl` kubeconfig command, Prometheus volume ID |
+| [outputs.tf](terraform/outputs.tf) | Cluster ID, API endpoint, kube context name, `doctl` kubeconfig command, volume IDs |
 
 **One-time setup**
 
@@ -252,21 +252,29 @@ Point the Makefile at the new cluster with `KUBE_CONTEXT=do-sgp1-finguard`.
 
 [overlays/doks/](overlays/doks/) builds on the base stack in `deploy/`. It sits
 outside `deploy/` because kustomize won't accept an overlay nested inside its own
-base. It changes three things:
+base. Compared with the base, it:
 
-- **Image**: `registry.digitalocean.com/finai/finguard-api:<sha tag>` for the API and the simulator. Bump `newTag` to the CI tag you want to run.
-- **Prometheus storage**: a static PersistentVolume points at the Terraform-created volume through the DigitalOcean CSI driver, so Terraform owns the disk and Kubernetes only mounts it. Retention is 15 days, capped at 4 GB.
-- **Grafana password**: a random password generated locally into `overlays/doks/grafana.env` (gitignored), never `admin`.
+- **Image**: uses `registry.digitalocean.com/finai/finguard-api:<sha tag>` for the API and the simulator. Bump `newTag` to the CI tag you want to run.
+- **Prometheus storage**: mounts the Terraform-created volume through a static PersistentVolume (DigitalOcean CSI driver). Terraform owns the disk; Kubernetes only mounts it. Retention is 15 days, capped at 4 GB.
+- **Public Grafana**: serves Grafana at `https://<PUBLIC_HOST>` through one DigitalOcean Load Balancer and a Caddy reverse proxy. Caddy gets and renews the Let's Encrypt certificate itself and stores it on a second Terraform volume, so restarts never re-issue it. A **login is required** (anonymous access off, secure cookies, no sign-up). The **API and Prometheus stay internal**.
+- **Grafana password**: generates a random password locally into `overlays/doks/grafana.env` (gitignored), never `admin`.
+- **No autoscaler**: the API runs a fixed 2 replicas.
 
 ```bash
-make doks-secrets    # once: random Grafana admin password
-make doks-volume     # once, after terraform apply: writes the volume ID into the PersistentVolume
-make doks-deploy     # kubectl --context do-sgp1-finguard apply -k overlays/doks
-make doks-status     # pods, PVC/PV, services, HPA
-make doks-forward    # API :8080 · Grafana :3300 · Prometheus :9095
+# once
+make doks-secrets                       # random Grafana admin password
+# set PUBLIC_HOST in overlays/doks/public.env (e.g. grafana.yourdomain.com)
+make doks-volume                        # after terraform apply: volume IDs -> PersistentVolumes
+
+make doks-deploy                        # kubectl --context do-sgp1-finguard apply -k overlays/doks
+make doks-public-ip                     # create a DNS A record: PUBLIC_HOST -> this IP
+make doks-status                        # pods, PVC/PV, services
+make doks-forward                       # internal access: API :8080 · Grafana :3300 · Prometheus :9095
 ```
 
-To log in to Grafana, use `admin` and the password in `overlays/doks/grafana.env`.
+Once DNS resolves, Caddy finishes the Let's Encrypt challenge on its own, usually
+within a minute or two. Log in to Grafana as `admin` with the password in
+`overlays/doks/grafana.env`.
 
 If you connect the workspace to GitHub (VCS-driven runs) rather than using the CLI, set the workspace's **Terraform working directory** to `terraform`. Terraform-only commits don't trigger the image pipeline, because `terraform/**` is in its `paths-ignore`.
 
@@ -371,7 +379,7 @@ tests/                 processing leakage, features, drift, evaluation, API, SHA
 scripts/               CI model quality gate, PrometheusRule generator
 .github/               CI pipeline (test → train → gate → build → scan → push to DOCR), Dependabot
 terraform/             basic DOKS cluster + Prometheus block storage volume via HCP Terraform
-overlays/doks/         kustomize overlay: DOCR image, Prometheus on the Terraform volume, Grafana secret
+overlays/doks/         kustomize overlay: DOCR image, Prometheus on a Terraform volume, public Grafana via Caddy + DO LB
 ```
 
 ## Production gaps (deliberately out of scope)

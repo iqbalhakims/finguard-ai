@@ -1,12 +1,16 @@
 # FinGuard on DOKS (cluster from terraform/). Builds on the base stack in deploy/.
 #
 #   make doks-secrets   # once: random Grafana admin password -> grafana.env (gitignored)
+#   make doks-volume    # once, after terraform apply: volume IDs -> PersistentVolumes
 #   make doks-deploy    # kubectl --context do-sgp1-finguard apply -k overlays/doks
+#   make doks-public-ip # load balancer IP for your DNS A record (PUBLIC_HOST in public.env)
 #
 # Differences from the base (minikube) stack:
 #   - API + simulator image from DOCR (pulled via the cluster's registry integration)
-#   - Prometheus stores its TSDB on the Terraform-managed block storage volume
-#   - Grafana admin password comes from a local, untracked env file
+#   - Prometheus stores its TSDB on a Terraform-managed block storage volume
+#   - Grafana is public at https://$PUBLIC_HOST via Caddy + a DO Load Balancer,
+#     login required (admin password from a local, untracked env file)
+#   - API and Prometheus stay internal (ClusterIP); no autoscaler (fixed 2 API replicas)
 #
 # This overlay lives outside deploy/ because kustomize refuses an overlay that is
 # nested inside its own base directory.
@@ -17,6 +21,7 @@ namespace: finguard
 resources:
   - ../../deploy
   - prometheus-storage.yaml
+  - public-grafana.yaml
 
 images:
   - name: finguard-api
@@ -25,6 +30,16 @@ images:
 
 patches:
   - path: prometheus-patch.yaml
+  - path: remove-hpa.yaml
+  - path: grafana-public-patch.yaml
+
+configMapGenerator:
+  - name: finguard-public
+    envs:
+      - public.env
+  - name: caddy-config
+    files:
+      - Caddyfile
 
 secretGenerator:
   - name: grafana-admin

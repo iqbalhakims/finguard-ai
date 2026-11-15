@@ -16,7 +16,7 @@ API_PORT         ?= 8000
 .PHONY: help setup data train drift-data drift-report test serve simulate simulate-drift mlflow-ui \
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete prometheusrule \
-        doks-secrets doks-volume doks-deploy doks-status doks-forward
+        doks-secrets doks-volume doks-deploy doks-public-ip doks-status doks-forward
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -117,22 +117,28 @@ doks-secrets: ## Create a random Grafana admin password for the DOKS overlay (on
 	  umask 077; printf 'password=%s\n' "$$(openssl rand -base64 24 | tr -d '/+=')" > $(DOKS_OVERLAY)/grafana.env; \
 	  echo "created $(DOKS_OVERLAY)/grafana.env (gitignored)"; }
 
-doks-volume: ## Put the Terraform-created Prometheus volume ID into the overlay (after terraform apply)
-	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-prometheus"{print $$1}'); \
-	test -n "$$id" || { echo "volume finguard-prometheus not found: run terraform apply first"; exit 1; }; \
-	sed -i.orig "s|volumeHandle: [^ ]*|volumeHandle: $$id|" $(DOKS_OVERLAY)/prometheus-storage.yaml && \
-	mv $(DOKS_OVERLAY)/prometheus-storage.yaml.orig /tmp/prometheus-storage.yaml.orig; \
-	echo "volumeHandle = $$id"
+doks-volume: ## Put the Terraform-created volume IDs into the overlay PersistentVolumes (after terraform apply)
+	@for pair in finguard-prometheus:prometheus-storage.yaml finguard-caddy:public-grafana.yaml; do \
+	  name=$${pair%%:*}; file=$(DOKS_OVERLAY)/$${pair#*:}; \
+	  id=$$(doctl compute volume list --format ID,Name --no-header | awk -v n=$$name '$$2==n{print $$1}'); \
+	  test -n "$$id" || { echo "volume $$name not found: run terraform apply first"; exit 1; }; \
+	  sed -i.orig "s|volumeHandle: [^ ]*|volumeHandle: $$id|" $$file && mv $$file.orig /tmp/; \
+	  echo "$$name -> $$id"; \
+	done
 
 doks-deploy: ## Deploy FinGuard to the DOKS cluster (context $(DOKS_CONTEXT))
 	@test -f $(DOKS_OVERLAY)/grafana.env || { echo "run 'make doks-secrets' first"; exit 1; }
-	@! grep -q REPLACE_WITH_PROMETHEUS_VOLUME_ID $(DOKS_OVERLAY)/prometheus-storage.yaml || { echo "run 'make doks-volume' first"; exit 1; }
+	@! grep -q "REPLACE_WITH_" $(DOKS_OVERLAY)/prometheus-storage.yaml $(DOKS_OVERLAY)/public-grafana.yaml || { echo "run 'make doks-volume' first"; exit 1; }
+	@! grep -q "PUBLIC_HOST=grafana.example.com" $(DOKS_OVERLAY)/public.env || { echo "set PUBLIC_HOST in $(DOKS_OVERLAY)/public.env first"; exit 1; }
 	kubectl --context $(DOKS_CONTEXT) apply -k $(DOKS_OVERLAY)
 	kubectl --context $(DOKS_CONTEXT) -n finguard rollout status deployment/finguard-api --timeout=300s
 
-doks-status: ## Pods, storage and HPA on DOKS
-	kubectl --context $(DOKS_CONTEXT) -n finguard get pods,pvc,svc,hpa
-	kubectl --context $(DOKS_CONTEXT) get pv finguard-prometheus
+doks-public-ip: ## Load balancer IP to use in the DNS A record for PUBLIC_HOST
+	@kubectl --context $(DOKS_CONTEXT) -n finguard get svc grafana-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
+
+doks-status: ## Pods, storage and services on DOKS
+	kubectl --context $(DOKS_CONTEXT) -n finguard get pods,pvc,svc
+	kubectl --context $(DOKS_CONTEXT) get pv finguard-prometheus finguard-caddy
 
 doks-forward: ## Port-forward the DOKS deployment (API :8080, Grafana :3300, Prometheus :9095)
 	$(MAKE) k8s-forward KUBE_CONTEXT=$(DOKS_CONTEXT)
