@@ -1,0 +1,188 @@
+# FinGuard CI: test -> train -> quality gate -> build (linux/amd64) -> Trivy scan -> push to DOCR.
+#
+# The image is pushed only after the scan passes, and never from pull requests.
+# Required repository secret:
+#   DIGITALOCEAN_ACCESS_TOKEN   DO API token with read/write access to the "finai" registry
+#
+# Actions are pinned to commit SHAs (tag in the trailing comment); Dependabot keeps them current.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "claude-memory/**"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["**.md", "claude-memory/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: registry.digitalocean.com/finai
+  IMAGE_NAME: finguard-api
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test-and-train:
+    name: Test, train & quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: make test PY=python
+
+      - name: Generate & process data
+        run: make data PY=python
+
+      - name: Train models (MLflow-tracked)
+        run: make train PY=python
+
+      - name: Model quality gate
+        run: python scripts/check_model.py --min-pr-auc 0.75 --min-precision 0.80 --min-recall 0.50
+
+      - name: Drift report smoke test
+        run: |
+          make drift-data PY=python
+          python -m finguard.drift --no-mlflow
+
+      - name: Upload serving bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: model-bundle
+          path: artifacts/model/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload MLflow run (metrics, plots, SHAP)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mlflow-run
+          path: |
+            mlflow.db
+            mlartifacts/
+            reports/
+          retention-days: 14
+
+  build-scan-push:
+    name: Build, scan & push image
+    needs: test-and-train
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download serving bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: model-bundle
+          path: artifacts/model
+
+      - name: Read model metadata
+        id: model
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          m = json.load(open("artifacts/model/metadata.json"))
+          print(f"type={m['model_type']}")
+          print(f"pr_auc={m['metrics']['test']['pr_auc']:.4f}")
+          EOF
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Image tags & labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=finguard-api
+            ai.finguard.model.type=${{ steps.model.outputs.type }}
+            ai.finguard.model.test-pr-auc=${{ steps.model.outputs.pr_auc }}
+
+      - name: Build image for scanning (linux/amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          pull: true   # always start from the latest patched base image
+          tags: ${{ env.IMAGE_NAME }}:scan
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:scan
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          vuln-type: os,library
+          exit-code: "1"
+
+      - name: Log in to DigitalOcean Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: registry.digitalocean.com
+          username: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          password: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Push image
+        id: push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          provenance: false   # DOCR's UI lists attestation manifests as extra "untagged" images
+
+      - name: Job summary
+        if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "### Image pushed to DOCR"
+            echo ""
+            echo "Digest: \`${DIGEST}\`"
+            echo ""
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

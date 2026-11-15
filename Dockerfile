@@ -15,8 +15,10 @@ RUN pip install -r requirements-serve.txt
 FROM python:${PYTHON_VERSION}-slim AS runtime
 LABEL org.opencontainers.image.title="finguard-api" \
       org.opencontainers.image.description="FinGuard AI fraud scoring API"
+# Apply pending Debian security fixes (the CI Trivy gate fails on fixable HIGH/CRITICAL CVEs);
 # libgomp: OpenMP runtime used by XGBoost
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends libgomp1 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin finguard
