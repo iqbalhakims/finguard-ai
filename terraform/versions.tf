@@ -15,7 +15,7 @@ terraform {
     organization = "iqbal-hakim"
 
     workspaces {
-      name = "finguard-doks"
+      name = "finguard-ai"
     }
   }
 }

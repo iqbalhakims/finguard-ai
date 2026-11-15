@@ -214,27 +214,25 @@ What gets deployed (namespace `finguard`):
 
 ## Infrastructure: DOKS with Terraform (HCP Terraform)
 
-[terraform/](terraform/) creates one DigitalOcean Kubernetes cluster. State and runs are in HCP Terraform (organization `iqbal-hakim`, workspace `finguard-doks`).
+[terraform/](terraform/) creates one DigitalOcean Kubernetes cluster. State and runs are in HCP Terraform (organization `iqbal-hakim`, workspace `finguard-ai`).
 
-| File | What it creates |
+| File | Contents |
 |---|---|
-| [main.tf](terraform/main.tf) | A dedicated VPC; the DOKS cluster, tracking the latest 1.35 patch with auto-upgrade on Sundays at 18:00 UTC and surge upgrades; an autoscaling node pool of **2–3 × `s-2vcpu-4gb`**; **DOCR integration** with the `finai` registry, so pods pull `registry.digitalocean.com/finai/finguard-api` without secrets; a DO project |
-| [variables.tf](terraform/variables.tf) | Region `sgp1`, sizes, version prefix, HA, an optional control-plane firewall allowlist, the maintenance window |
-| [outputs.tf](terraform/outputs.tf) | Cluster ID and endpoint, kube context name, `doctl` kubeconfig command, registry endpoint and storage used |
-
-The HA control plane is **off** by default (`ha = false`). It adds cost, can't be turned off once enabled, and DOKS turns it on by default from 1.36. Set `control_plane_allowed_cidrs = ["<your-ip>/32"]` to restrict who can reach the Kubernetes API.
+| [main.tf](terraform/main.tf) | One DOKS cluster in **Singapore (`sgp1`)** on the latest 1.35 patch: **2 × `s-2vcpu-4gb`** nodes, standard (non-HA) control plane, and pulls from the `finai` registry without image pull secrets |
+| [variables.tf](terraform/variables.tf) | Region, cluster name, Kubernetes version, node size and count |
+| [outputs.tf](terraform/outputs.tf) | Cluster ID, API endpoint, kube context name, `doctl` kubeconfig command |
 
 **One-time setup**
 
 ```bash
 cd terraform
 terraform login      # HCP Terraform API token
-terraform init       # creates workspace "finguard-doks" in org "iqbal-hakim" if it doesn't exist
+terraform init       # creates workspace "finguard-ai" in org "iqbal-hakim" if it doesn't exist
 ```
 
 In HCP, go to Workspace → **Variables** and add an **environment** variable
 `DIGITALOCEAN_TOKEN`, marked sensitive. Use a DO API token with write access to
-Kubernetes, VPC, Projects and Tags, plus read access to the registry. Then:
+Kubernetes and read access to the registry. Then:
 
 ```bash
 terraform plan       # runs remotely in HCP Terraform
@@ -245,7 +243,7 @@ doctl kubernetes cluster kubeconfig save finguard --set-current-context=false   
 `--set-current-context=false` leaves your current kubectl context untouched.
 Point the Makefile at the new cluster with `KUBE_CONTEXT=do-sgp1-finguard`.
 
-> `terraform destroy` removes the cluster and VPC but **not** DigitalOcean Load
+> `terraform destroy` removes the cluster but **not** DigitalOcean Load
 > Balancers or volumes created from inside Kubernetes. Delete `LoadBalancer`
 > Services and PVCs first.
 
@@ -351,7 +349,7 @@ deploy/
 tests/                 processing leakage, features, drift, evaluation, API, SHAP additivity
 scripts/               CI model quality gate, PrometheusRule generator
 .github/               CI pipeline (test → train → gate → build → scan → push to DOCR), Dependabot
-terraform/             DOKS cluster + VPC via HCP Terraform (versions, provider, variables, main, outputs)
+terraform/             basic DOKS cluster in Singapore via HCP Terraform
 ```
 
 ## Production gaps (deliberately out of scope)
