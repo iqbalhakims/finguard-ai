@@ -16,6 +16,11 @@ updates:
       python:
         patterns: ["*"]
 
+  - package-ecosystem: terraform
+    directory: /terraform
+    schedule:
+      interval: weekly
+
   - package-ecosystem: docker
     directory: /
     schedule:

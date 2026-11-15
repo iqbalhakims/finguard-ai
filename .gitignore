@@ -9,3 +9,9 @@ __pycache__/
 /mlartifacts/
 /mlflow.db
 /reports/
+# terraform (state lives in HCP Terraform; the lock file IS committed)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
