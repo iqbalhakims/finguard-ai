@@ -2,9 +2,10 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-data/
-artifacts/
-mlruns/
-mlartifacts/
-mlflow.db
-reports/
+# generated outputs (anchored to the repo root so the finguard/data package is not ignored)
+/data/
+/artifacts/
+/mlruns/
+/mlartifacts/
+/mlflow.db
+/reports/
