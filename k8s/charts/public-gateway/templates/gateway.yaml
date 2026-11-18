@@ -47,7 +47,7 @@ metadata:
     {{- toYaml $labels | nindent 4 }}
   {{- with .Values.dnsTtl }}
   annotations:
-    external-dns.alpha.kubernetes.io/ttl: {{ . | quote }}   # short: the IP changes on rebuild
+    external-dns.kubernetes.io/ttl: {{ . | quote }}   # short: the IP changes on rebuild
   {{- end }}
 spec:
   parentRefs:
@@ -78,7 +78,7 @@ metadata:
     {{- toYaml $labels | nindent 4 }}
   {{- with .Values.dnsTtl }}
   annotations:
-    external-dns.alpha.kubernetes.io/ttl: {{ . | quote }}
+    external-dns.kubernetes.io/ttl: {{ . | quote }}
   {{- end }}
 spec:
   parentRefs:
