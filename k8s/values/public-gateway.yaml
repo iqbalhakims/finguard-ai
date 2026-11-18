@@ -10,3 +10,6 @@ host: grafana.iqbalhakim.site
 backend:
   service: grafana   # kube-prometheus-stack Grafana (grafana.fullnameOverride)
   port: 80
+
+# external-dns keeps the Cloudflare record on the current Gateway IP (k8s/argocd/apps/external-dns.yaml)
+dnsTtl: 60

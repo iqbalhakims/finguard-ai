@@ -1,3 +1,9 @@
+variable "cluster_enabled" {
+  description = "Run the cluster? Set false (HCP workspace variable) to tear it down for the day; volumes are kept. Run `make doks-down` first."
+  type        = bool
+  default     = true
+}
+
 variable "region" {
   description = "DigitalOcean region (sgp1 = Singapore)."
   type        = string

@@ -57,7 +57,7 @@ alertmanager:
 grafana:
   fullnameOverride: grafana
   admin:
-    existingSecret: grafana-admin     # SealedSecret in extraManifests below
+    existingSecret: grafana-admin     # SealedSecret: k8s/secrets/grafana-admin.yaml
     userKey: admin-user
     passwordKey: admin-password
   grafana.ini:
@@ -103,19 +103,3 @@ extraManifests:
         volumeHandle: 4fc64312-e101-11f1-a820-2e8a79e9469b   # terraform output prometheus_volume_id
         volumeAttributes:
           com.digitalocean.csi/noformat: "true"
-  # Grafana admin login, encrypted for this cluster only (make doks-seal-grafana).
-  - apiVersion: bitnami.com/v1alpha1
-    kind: SealedSecret
-    metadata:
-      name: grafana-admin
-      namespace: monitoring
-      annotations:
-        argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    spec:
-      encryptedData:
-        admin-user: SEALED_BY_MAKE_DOKS_SEAL_GRAFANA
-        admin-password: SEALED_BY_MAKE_DOKS_SEAL_GRAFANA
-      template:
-        metadata:
-          name: grafana-admin
-          namespace: monitoring

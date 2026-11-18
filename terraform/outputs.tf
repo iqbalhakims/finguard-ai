@@ -1,9 +1,10 @@
 output "cluster_id" {
-  value = digitalocean_kubernetes_cluster.this.id
+  description = "Null while cluster_enabled = false."
+  value       = one(digitalocean_kubernetes_cluster.this[*].id)
 }
 
 output "endpoint" {
-  value = digitalocean_kubernetes_cluster.this.endpoint
+  value = one(digitalocean_kubernetes_cluster.this[*].endpoint)
 }
 
 output "kube_context" {
@@ -11,8 +12,8 @@ output "kube_context" {
 }
 
 output "kubeconfig_command" {
-  description = "Adds the cluster to your kubeconfig without switching your current context."
-  value       = "doctl kubernetes cluster kubeconfig save ${digitalocean_kubernetes_cluster.this.id} --set-current-context=false"
+  description = "Adds the cluster to your kubeconfig without switching your current context (make doks-up runs it)."
+  value       = "doctl kubernetes cluster kubeconfig save ${var.cluster_name} --set-current-context=false"
 }
 
 output "prometheus_volume_id" {

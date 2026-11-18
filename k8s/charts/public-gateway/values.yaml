@@ -13,6 +13,9 @@ backend:
   service: grafana
   port: 80
 
+# DNS TTL (seconds) that external-dns sets for the host record; empty = provider default.
+dnsTtl: ""
+
 tls:
   secretName: public-gateway-tls
   acmeServer: https://acme-v02.api.letsencrypt.org/directory

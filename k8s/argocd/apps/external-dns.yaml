@@ -1,0 +1,53 @@
+# external-dns: keeps grafana.iqbalhakim.site pointing at whatever load balancer IP
+# the current cluster's Gateway got (the cluster is recreated often, the IP changes).
+# Scoped tightly so it can never touch other records in the zone:
+#   - only HTTPRoute hostnames from the Gateway API, only under iqbalhakim.site
+#   - upsert-only: it creates/updates, never deletes
+#   - TXT ownership records (owner finguard-doks): it only changes records it created
+#   - records are "DNS only" (not proxied through Cloudflare)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns
+    chart: external-dns
+    targetRevision: 1.23.0
+    helm:
+      releaseName: external-dns
+      valuesObject:
+        provider:
+          name: cloudflare
+        env:
+          - name: CF_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflare-api-token     # SealedSecret: k8s/secrets/cloudflare-api-token.yaml
+                key: api-token
+        sources:
+          - gateway-httproute
+        domainFilters:
+          - iqbalhakim.site
+        policy: upsert-only
+        registry: txt
+        txtOwnerId: finguard-doks
+        txtPrefix: edns-
+        interval: 1m
+        resources:
+          requests:
+            cpu: 10m
+            memory: 48Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

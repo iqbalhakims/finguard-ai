@@ -45,6 +45,10 @@ metadata:
   name: {{ .Release.Name }}-https
   labels:
     {{- toYaml $labels | nindent 4 }}
+  {{- with .Values.dnsTtl }}
+  annotations:
+    external-dns.alpha.kubernetes.io/ttl: {{ . | quote }}   # short: the IP changes on rebuild
+  {{- end }}
 spec:
   parentRefs:
     - name: {{ .Release.Name }}
@@ -72,6 +76,10 @@ metadata:
   name: {{ .Release.Name }}-http-redirect
   labels:
     {{- toYaml $labels | nindent 4 }}
+  {{- with .Values.dnsTtl }}
+  annotations:
+    external-dns.alpha.kubernetes.io/ttl: {{ . | quote }}
+  {{- end }}
 spec:
   parentRefs:
     - name: {{ .Release.Name }}

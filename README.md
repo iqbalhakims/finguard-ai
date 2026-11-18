@@ -262,51 +262,80 @@ doctl kubernetes cluster kubeconfig save finguard --set-current-context=false   
 `--set-current-context=false` leaves your current kubectl context untouched.
 The `doks-*` and `argocd-*` targets use that context by default (`DOKS_CONTEXT`).
 
-> **Tearing down.** A destroy run (HCP → Workspace → Settings → Destruction and
-> Deletion → Queue destroy plan) removes the cluster **and the Prometheus volume
-> (its metrics history)**. To remove only the cluster and keep the volume, queue a
-> run through the HCP API with `is-destroy: true` and
-> `target-addrs: ["digitalocean_kubernetes_cluster.this"]`. Neither removes the
-> DigitalOcean Load Balancer the Gateway created, so delete the `public-gateway`
-> Argo CD app (or the `monitoring` namespace) first.
+> **Tearing down.** For the daily stop, don't queue a destroy run: it also deletes the
+> Prometheus volume and its history. Use `make doks-down` and then
+> `cluster_enabled = false`, as described below. A full destroy run (HCP → Workspace →
+> Settings → Destruction and Deletion) is only for removing everything. Run
+> `make doks-down` first there too, or the Gateway's load balancer is left behind and
+> keeps billing. If you ever delete the cluster from the DigitalOcean UI, **don't tick
+> "destroy associated resources"**: the storage driver tags the Prometheus volume as
+> associated with the cluster, so its metrics history would be deleted too.
 
 ### Deploying to DOKS with GitOps (Argo CD)
 
-Argo CD is installed once with Helm. After that, **everything is deployed from
-git**: change something under `k8s/`, commit, push, and Argo CD syncs it (automated
-sync with prune and self-heal).
+Argo CD is installed with Helm whenever the cluster is created. After that,
+**everything is deployed from git**: change something under `k8s/`, commit, push,
+and Argo CD syncs it (automated sync with prune and self-heal).
 
 | Argo CD app | What | Namespace |
 |---|---|---|
 | `cert-manager` | Official chart v1.21.3, Gateway API support on | `cert-manager` |
 | `sealed-secrets` | Official chart 2.22.0 (controller 0.41.2) | `kube-system` |
-| `kube-prometheus-stack` | Official chart 92.17.0 with [values](k8s/values/kube-prometheus-stack.yaml): Prometheus on the **Terraform volume** (15 days, max 4 GB), Grafana (login required, admin login from a **SealedSecret**), Alertmanager, kube-state-metrics, node-exporter. Picks up ServiceMonitors, rules and dashboards from every namespace | `monitoring` |
+| `external-dns` | Official chart 1.23.0: keeps `grafana.iqbalhakim.site` in **Cloudflare** pointed at the current Gateway IP. Only HTTPRoute hosts under `iqbalhakim.site`, **upsert-only** (never deletes), TXT ownership records (only touches records it created), DNS only (not proxied), TTL 60s | `external-dns` |
+| `kube-prometheus-stack` | Official chart 92.17.0 with [values](k8s/values/kube-prometheus-stack.yaml): Prometheus on the **Terraform volume** (15 days, max 4 GB), Grafana (login required), Alertmanager, kube-state-metrics, node-exporter. Picks up ServiceMonitors, rules and dashboards from every namespace | `monitoring` |
 | `finguard` | [This chart](k8s/charts/finguard/) with [doks.yaml](k8s/values/doks.yaml): registry image `sha-<commit>`, 2 API replicas, simulator, ServiceMonitor, PrometheusRule, dashboard | `finguard` |
 | `public-gateway` | [Gateway chart](k8s/charts/public-gateway/): **Cilium Gateway API** (built into DOKS) → Grafana, HTTP→HTTPS redirect, HSTS, **Let's Encrypt** via cert-manager HTTP-01 | `monitoring` |
+| `secrets` | The SealedSecrets in [k8s/secrets/](k8s/secrets/): Grafana login, Cloudflare token | per file |
 
-Only Grafana is public. The API and Prometheus stay internal (ClusterIP).
+Only Grafana is public, at `https://grafana.iqbalhakim.site`. The API and Prometheus
+stay internal (ClusterIP).
+
+**One-time setup** (with the cluster running):
 
 ```bash
-# once
-make argocd-bootstrap                   # helm install argo-cd 10.11.6 + apply k8s/argocd/root.yaml
-brew install kubeseal && make doks-seal-grafana   # random Grafana login, sealed into the values; commit it
-make doks-set-host HOST=grafana.yourdomain.com    # gateway host + Grafana root URL; commit it
-git push                                # Argo CD deploys it
-
-make doks-public-ip                     # DNS A record: grafana.yourdomain.com -> this IP
-make doks-cert-status                   # gateway, routes, certificate (READY=True once DNS resolves)
-make argocd-status                      # sync / health of all apps
-make argocd-ui                          # Argo CD UI on https://localhost:8443
-make doks-forward                       # internal: API :8080 · Grafana :3300 · Prometheus :9095
+brew install kubeseal
+make doks-up                     # kubeconfig + Argo CD (first time: nothing to restore yet)
+make doks-seal-grafana           # random Grafana login  -> k8s/secrets/grafana-admin.yaml
+make doks-seal-cloudflare        # Cloudflare API token  -> k8s/secrets/cloudflare-api-token.yaml
+git add k8s/secrets && git commit -m "add sealed secrets" && git push
 ```
 
-To log in to Grafana, use `admin` and the password in `k8s/.secrets/grafana-admin-password`
-(gitignored); only the sealed copy is in git. To deploy a new image, set
-`image.tag` in [k8s/values/doks.yaml](k8s/values/doks.yaml) to a CI tag
-(`sha-<commit>`) and push.
+The Cloudflare token comes from **Cloudflare → My Profile → API Tokens → Create
+Token → "Edit zone DNS"** template, with Zone Resources limited to **`iqbalhakim.site`
+only**. `make doks-seal-cloudflare` prompts for it without echoing, and only the
+encrypted file is written. Never paste the token anywhere else.
 
-The Gateway's load balancer IP stays the same as long as the Gateway exists, so one
-manual A record at the DNS provider is enough; external-dns isn't needed.
+**Daily: the cluster only runs a few hours a day.** The domain stays the same and
+external-dns moves it to each new load balancer IP.
+
+| | Steps |
+|---|---|
+| **Start** | HCP Terraform → workspace `finguard-ai` → variable `cluster_enabled = true` → start a run, then `make doks-up` |
+| **Stop** | `make doks-down` (backs up keys + certificate, removes the load balancer), then set `cluster_enabled = false` and start a run |
+
+`make doks-down` deletes the Gateway first, so DigitalOcean removes its load balancer.
+Otherwise the load balancer would outlive the cluster and keep billing.
+`cluster_enabled = false` then removes the cluster. The **Prometheus volume is kept**,
+so metrics history carries over. Each start then:
+
+- restores the **Sealed Secrets keys**, so the secrets in git still decrypt. A new cluster would otherwise generate a new key.
+- restores the **Let's Encrypt certificate**, so it isn't re-issued daily. Let's Encrypt allows only 5 duplicate certificates per week.
+- bootstraps Argo CD, which deploys everything from git; external-dns then updates the DNS record within about 2 minutes.
+
+Backups live in `k8s/.secrets/` (gitignored). They contain private keys, so keep a
+copy in your password manager. If they're lost, re-run the two `doks-seal-*` targets
+and commit.
+
+```bash
+make argocd-status               # sync / health of all apps
+make doks-cert-status            # gateway, routes, certificate
+make argocd-ui                   # Argo CD UI on https://localhost:8443
+make doks-forward                # internal: API :8080 · Grafana :3300 · Prometheus :9095
+```
+
+To log in to Grafana, use `admin` and the password in
+`k8s/.secrets/grafana-admin-password`. To deploy a new image, set `image.tag` in
+[k8s/values/doks.yaml](k8s/values/doks.yaml) to a CI tag (`sha-<commit>`) and push.
 
 Terraform-only commits don't trigger the image pipeline, because `terraform/**` is in its `paths-ignore`.
 
@@ -403,10 +432,10 @@ finguard/
   model.py             serving bundle (model + thresholds + drift profile)
   simulate.py          traffic generator with live precision/recall
   api/                 FastAPI app, schemas, Prometheus metrics, drift monitor
-k8s/                   Helm charts (finguard, public-gateway), values per environment, Argo CD apps
+k8s/                   Helm charts (finguard, public-gateway), values per environment, Argo CD apps, sealed secrets
 compose/               docker-compose Prometheus config (alerts + Grafana files come from the chart)
 tests/                 processing leakage, features, drift, evaluation, API, SHAP additivity
-scripts/               CI model quality gate
+scripts/               CI model quality gate, DOKS key/certificate backup and restore
 .github/               CI (test → train → gate → build → scan → push to DOCR), Helm lint, Dependabot
 terraform/             DOKS cluster + Prometheus block storage volume via HCP Terraform
 ```

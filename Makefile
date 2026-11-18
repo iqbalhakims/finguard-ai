@@ -17,7 +17,7 @@ API_PORT         ?= 8000
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete helm-lint \
         argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-volume doks-set-host doks-public-ip \
-        doks-cert-status doks-status doks-forward
+        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-backup doks-restore doks-up doks-down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -125,8 +125,11 @@ helm-lint: ## Lint and render the charts with every values file
 # After bootstrap, deploying = edit k8s/ (chart or values/doks.yaml), commit, push.
 DOKS_CONTEXT    ?= do-sgp1-finguard
 DOKS_KUBECTL    := kubectl --context $(DOKS_CONTEXT)
+DOKS_CLUSTER    ?= finguard
 KPS_VALUES      := k8s/values/kube-prometheus-stack.yaml
 GATEWAY_VALUES  := k8s/values/public-gateway.yaml
+SECRETS_DIR     := k8s/secrets
+BACKUP_DIR      := k8s/.secrets
 ARGOCD_CHART_VERSION := 10.11.6
 
 argocd-bootstrap: ## Install Argo CD once with Helm, then apply the root app (everything else is GitOps)
@@ -142,17 +145,50 @@ argocd-ui: ## Argo CD UI at https://localhost:8443 (prints the initial admin pas
 	@echo "user: admin   password: $$($(DOKS_KUBECTL) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
 	$(DOKS_KUBECTL) -n argocd port-forward svc/argocd-server 8443:443
 
-doks-seal-grafana: ## Seal a random Grafana admin login into k8s/values/kube-prometheus-stack.yaml (needs kubeseal)
+doks-seal-grafana: ## Seal a random Grafana admin login into k8s/secrets/grafana-admin.yaml (needs kubeseal)
 	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
-	@mkdir -p k8s/.secrets; test -f k8s/.secrets/grafana-admin-password || { \
-	  umask 077; openssl rand -base64 24 | tr -d '/+=\n' > k8s/.secrets/grafana-admin-password; }
-	@seal() { printf '%s' "$$1" | kubeseal --context $(DOKS_CONTEXT) --raw --namespace monitoring \
-	  --name grafana-admin --from-file=/dev/stdin; }; \
-	user=$$(seal admin); pass=$$(seal "$$(cat k8s/.secrets/grafana-admin-password)"); \
-	test -n "$$user" -a -n "$$pass" || exit 1; \
-	sed -i.orig -e "s|^        admin-user: .*|        admin-user: $$user|" \
-	  -e "s|^        admin-password: .*|        admin-password: $$pass|" $(KPS_VALUES) && mv $(KPS_VALUES).orig /tmp/; \
-	echo "sealed into $(KPS_VALUES) (commit it). Login: admin / k8s/.secrets/grafana-admin-password (gitignored)"
+	@mkdir -p $(BACKUP_DIR); test -f $(BACKUP_DIR)/grafana-admin-password || { \
+	  umask 077; openssl rand -base64 24 | tr -d '/+=\n' > $(BACKUP_DIR)/grafana-admin-password; }
+	@$(DOKS_KUBECTL) create secret generic grafana-admin -n monitoring --dry-run=client -o yaml \
+	  --from-literal=admin-user=admin --from-file=admin-password=$(BACKUP_DIR)/grafana-admin-password \
+	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/grafana-admin.yaml.tmp; \
+	test -s $(SECRETS_DIR)/grafana-admin.yaml.tmp && mv $(SECRETS_DIR)/grafana-admin.yaml.tmp $(SECRETS_DIR)/grafana-admin.yaml \
+	  && echo "wrote $(SECRETS_DIR)/grafana-admin.yaml (commit it). Login: admin / $(BACKUP_DIR)/grafana-admin-password"
+
+doks-seal-cloudflare: ## Seal your Cloudflare API token for external-dns (prompts; input is hidden)
+	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
+	@printf 'Cloudflare API token (Zone > DNS > Edit, iqbalhakim.site only; hidden): '; \
+	stty -echo; read -r token; stty echo; echo; test -n "$$token" || { echo "no token entered"; exit 1; }; \
+	printf '%s' "$$token" | $(DOKS_KUBECTL) create secret generic cloudflare-api-token -n external-dns \
+	  --dry-run=client -o yaml --from-file=api-token=/dev/stdin \
+	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/cloudflare-api-token.yaml.tmp; \
+	test -s $(SECRETS_DIR)/cloudflare-api-token.yaml.tmp && mv $(SECRETS_DIR)/cloudflare-api-token.yaml.tmp $(SECRETS_DIR)/cloudflare-api-token.yaml \
+	  && echo "wrote $(SECRETS_DIR)/cloudflare-api-token.yaml (commit it)"
+
+doks-backup: ## Back up the Sealed Secrets keys + TLS certificate to k8s/.secrets/ (gitignored)
+	$(PY) scripts/doks_secrets.py backup --context $(DOKS_CONTEXT) --dir $(BACKUP_DIR)
+
+doks-restore: ## Restore the Sealed Secrets keys + TLS certificate into a fresh cluster
+	$(PY) scripts/doks_secrets.py restore --context $(DOKS_CONTEXT) --dir $(BACKUP_DIR)
+
+doks-down: doks-backup ## Before switching the cluster off: back up keys/cert and remove the load balancer
+	@# Removing the cluster would orphan the Gateway's load balancer (still billed), so delete
+	@# the Gateway while the cluster runs. Deleting the Argo CD Applications first stops
+	@# self-heal from recreating it (no finalizers: the workloads themselves are left alone).
+	-$(DOKS_KUBECTL) -n argocd delete applications --all --wait=true
+	$(DOKS_KUBECTL) -n monitoring delete gateway public-gateway --ignore-not-found --wait=true
+	@echo "waiting for DigitalOcean to remove load balancer finguard-public..."; \
+	for i in $$(seq 1 30); do doctl compute load-balancer list --format Name --no-header | grep -qx finguard-public || break; sleep 10; done; \
+	if doctl compute load-balancer list --format Name --no-header | grep -qx finguard-public; then \
+	  echo "WARNING: load balancer finguard-public still exists - check before switching off"; exit 1; fi
+	@echo "Load balancer removed. Now in HCP Terraform (workspace finguard-ai): set cluster_enabled = false and start a run."
+	@echo "The Prometheus volume (metrics history) is kept."
+
+doks-up: ## After HCP created the cluster (cluster_enabled=true): kubeconfig, restore keys/cert, Argo CD
+	doctl kubernetes cluster kubeconfig save $(DOKS_CLUSTER) --set-current-context=false
+	$(MAKE) doks-restore
+	$(MAKE) argocd-bootstrap
+	@echo "Argo CD is syncing (make argocd-status). external-dns points grafana.iqbalhakim.site at the new IP in ~2 min."
 
 doks-volume: ## Put the Terraform-created Prometheus volume ID into k8s/values/kube-prometheus-stack.yaml
 	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-prometheus"{print $$1}'); \

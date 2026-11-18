@@ -4,7 +4,11 @@ data "digitalocean_kubernetes_versions" "this" {
   version_prefix = var.kubernetes_version_prefix
 }
 
+# The cluster is switched on/off with var.cluster_enabled (few hours a day); the
+# Prometheus volume below is not, so metrics history survives every rebuild.
 resource "digitalocean_kubernetes_cluster" "this" {
+  count = var.cluster_enabled ? 1 : 0
+
   name    = var.cluster_name
   region  = var.region
   version = data.digitalocean_kubernetes_versions.this.latest_version
@@ -25,6 +29,13 @@ resource "digitalocean_kubernetes_cluster" "this" {
   depends_on = [digitalocean_volume.prometheus]
 }
 
+# The cluster resource gained `count`; keep any existing state entry instead of
+# planning a replacement.
+moved {
+  from = digitalocean_kubernetes_cluster.this
+  to   = digitalocean_kubernetes_cluster.this[0]
+}
+
 # Persistent disk for Prometheus. Kubernetes mounts it through a static
 # PersistentVolume in k8s/values/kube-prometheus-stack.yaml (volumeHandle =
 # prometheus_volume_id output, filled in by `make doks-volume`),
@@ -35,4 +46,10 @@ resource "digitalocean_volume" "prometheus" {
   size                    = var.prometheus_volume_size_gb
   initial_filesystem_type = "ext4"
   description             = "FinGuard AI Prometheus metrics (TSDB)"
+
+  lifecycle {
+    # The DigitalOcean CSI driver tags the volume "k8s:<cluster-id>" when a cluster
+    # attaches it; every rebuild adds a new one. Don't fight it on each apply.
+    ignore_changes = [tags]
+  }
 }
