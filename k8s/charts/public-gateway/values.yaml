@@ -1,0 +1,19 @@
+# Install in the same namespace as the backend Service (no ReferenceGrant needed).
+
+gatewayClassName: cilium
+
+# Annotations for the LoadBalancer Service the Gateway controller creates.
+loadBalancerAnnotations: {}
+
+# Public hostname (DNS A record -> Gateway address). Empty = create the Gateway
+# only, so its IP can be read first; HTTPS, routes and certificate come once set.
+host: ""
+
+backend:
+  service: grafana
+  port: 80
+
+tls:
+  secretName: public-gateway-tls
+  acmeServer: https://acme-v02.api.letsencrypt.org/directory
+  acmeEmail: ""      # optional: Let's Encrypt expiry notices

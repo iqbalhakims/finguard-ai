@@ -1,0 +1,52 @@
+{{- if .Values.simulator.enabled }}
+{{- $sel := dict "name" "traffic-simulator" -}}
+# Synthetic card traffic so the dashboards have something to show.
+# Drift demo: set simulator.drift=true (values file) and let Argo CD sync.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-simulator
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+    {{- include "finguard.selector" $sel | nindent 4 }}
+    app.kubernetes.io/component: load-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "finguard.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "finguard.labels" . | nindent 8 }}
+        {{- include "finguard.selector" $sel | nindent 8 }}
+        app.kubernetes.io/component: load-generator
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "finguard.podSecurity" (dict "root" . "extra" (dict "runAsUser" 10001 "runAsGroup" 10001)) | nindent 8 }}
+      containers:
+        - name: simulator
+          image: {{ include "finguard.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "finguard.simulate"]
+          env:
+            - name: SIMULATOR_URL
+              value: http://finguard-api
+            - name: SIMULATOR_RPS
+              value: {{ .Values.simulator.rps | quote }}
+            - name: SIMULATOR_DRIFT
+              value: {{ .Values.simulator.drift | quote }}
+            - name: HOME
+              value: /tmp
+          resources:
+            {{- toYaml .Values.simulator.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

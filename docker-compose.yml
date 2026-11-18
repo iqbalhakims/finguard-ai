@@ -53,8 +53,8 @@ services:
       - --storage.tsdb.retention.time=7d
       - --web.enable-lifecycle
     volumes:
-      - ./deploy/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./deploy/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./compose/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./k8s/charts/finguard/files/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9095}:9090"
@@ -71,8 +71,8 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:
-      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./k8s/charts/finguard/files/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./k8s/charts/finguard/files/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "${GRAFANA_PORT:-3300}:3000"

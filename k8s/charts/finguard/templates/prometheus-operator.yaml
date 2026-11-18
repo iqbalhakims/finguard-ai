@@ -1,0 +1,57 @@
+{{- /* Integration with kube-prometheus-stack (Prometheus Operator + Grafana sidecar). */ -}}
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: finguard-api
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # job label = Service name "finguard-api", as used by the dashboard and alerts;
+  # every API pod endpoint is scraped individually.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finguard-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+{{- end }}
+{{- if .Values.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: finguard-alerts
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  {{- /* Same rules as the bundled Prometheus: files/prometheus/alerts.yml */}}
+  {{- toYaml (fromYaml (.Files.Get "files/prometheus/alerts.yml")) | nindent 2 }}
+{{- end }}
+{{- if .Values.grafanaDashboard.sidecar }}
+---
+# Picked up by the kube-prometheus-stack Grafana dashboard sidecar (any namespace).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: finguard-grafana-dashboard
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: FinGuard
+data:
+  finguard.json: |
+    {{- .Files.Get "files/grafana/dashboards/finguard.json" | nindent 4 }}
+{{- end }}

@@ -1,0 +1,111 @@
+# Default values: a self-contained local install (minikube/kind).
+# Environment overrides live in ../../values/<env>.yaml.
+#
+# Resource names are fixed (finguard-api, prometheus, grafana, ...) so the bundled
+# Prometheus/Grafana configs can reference each other: install one release per namespace.
+
+image:
+  repository: finguard-api
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+api:
+  replicas: 2
+  config:
+    LOG_LEVEL: INFO
+    DRIFT_WINDOW_SIZE: "2000"
+    DRIFT_MIN_SAMPLES: "200"
+    DRIFT_CHECK_INTERVAL_SECONDS: "30"
+    DRIFT_SHARE_THRESHOLD: "0.3"
+    EXPLAIN_TOP_K: "5"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+simulator:
+  enabled: true
+  rps: 10
+  drift: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+prometheus:
+  enabled: true
+  image: prom/prometheus:v3.15.1
+  retention:
+    time: 2d
+    size: ""            # e.g. 4GB
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  persistence:
+    enabled: false      # false = emptyDir (history lost on restart)
+    size: 5Gi
+    storageClassName: ""
+    # Pre-provisioned block storage volume ID (e.g. a Terraform-managed DigitalOcean
+    # volume). When set, the chart creates a static PersistentVolume bound to it;
+    # when empty, the PVC is provisioned dynamically by the storage class.
+    volumeHandle: ""
+    csiDriver: dobs.csi.digitalocean.com
+    fsType: ext4
+
+grafana:
+  enabled: true
+  image: grafana/grafana:13.2.6
+  anonymousViewer: true   # read-only access without login
+  rootUrl: ""             # e.g. https://grafana.example.com/ when served behind HTTPS
+  admin:
+    user: admin
+    secretName: grafana-admin   # Secret with key "password"
+    # Exactly one way to provide the password:
+    #   sealedPassword: kubeseal-encrypted value (GitOps; needs the Sealed Secrets controller)
+    #   password:       plain value, chart creates a normal Secret (local/dev only)
+    #   neither:        the Secret already exists
+    sealedPassword: ""
+    password: admin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Integration with kube-prometheus-stack (Prometheus Operator + Grafana sidecar).
+# Typically: prometheus.enabled=false, grafana.enabled=false and these three on.
+serviceMonitor:
+  enabled: false
+  labels: {}
+prometheusRule:
+  enabled: false
+  labels: {}
+grafanaDashboard:
+  sidecar: false     # ConfigMap labelled grafana_dashboard="1"

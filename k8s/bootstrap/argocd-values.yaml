@@ -1,0 +1,19 @@
+# Argo CD (chart argo/argo-cd 10.11.6 = Argo CD v3.5.6), installed once by
+# `make argocd-bootstrap`. After that, Argo CD manages everything under k8s/argocd/.
+# Kept small for a single-node cluster; the UI stays internal (port-forward).
+global:
+  domain: argocd.local
+
+configs:
+  params:
+    server.insecure: false
+
+server:
+  service:
+    type: ClusterIP
+
+dex:
+  enabled: false            # no SSO; log in with the initial admin password
+
+notifications:
+  enabled: false

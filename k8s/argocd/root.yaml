@@ -1,0 +1,20 @@
+# App of apps: the only object applied by hand (make argocd-bootstrap).
+# Argo CD then creates and keeps in sync every Application in k8s/argocd/apps/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: finguard-root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iqbalhakims/finguard-ai.git
+    targetRevision: main
+    path: k8s/argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

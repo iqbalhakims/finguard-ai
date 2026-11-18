@@ -1,0 +1,38 @@
+# kube-prometheus-stack (official Helm chart) with values from this repo
+# (multi-source: chart from prometheus-community, values file via $values).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 92.17.0
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/k8s/values/kube-prometheus-stack.yaml
+    - repoURL: https://github.com/iqbalhakims/finguard-ai.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true     # Prometheus Operator CRDs exceed client-side apply limits
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

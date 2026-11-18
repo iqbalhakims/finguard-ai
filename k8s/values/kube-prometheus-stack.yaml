@@ -1,0 +1,121 @@
+# kube-prometheus-stack 92.17.0 on DOKS (Argo CD app: k8s/argocd/apps/kube-prometheus-stack.yaml).
+# Picks up FinGuard's ServiceMonitor, PrometheusRule and dashboard ConfigMap from any namespace.
+
+fullnameOverride: kps
+
+# DOKS manages the control plane, and Cilium replaces kube-proxy: nothing to scrape there.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
+    kubeProxy: false
+
+prometheus:
+  prometheusSpec:
+    # Select ServiceMonitors / PodMonitors / PrometheusRules from every namespace,
+    # without requiring a `release: ...` label.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 15d
+    retentionSize: 4GB
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1536Mi
+    # TSDB on the Terraform-managed block storage volume (terraform/main.tf),
+    # bound through the static PersistentVolume in extraManifests below.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: do-block-storage
+          volumeName: kps-prometheus-data
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+
+grafana:
+  fullnameOverride: grafana
+  admin:
+    existingSecret: grafana-admin     # SealedSecret in extraManifests below
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    auth.anonymous:
+      enabled: false
+    users:
+      allow_sign_up: false
+    security:
+      cookie_secure: true
+    server:
+      # Public URL served by the Cilium Gateway. `make doks-set-host HOST=...` sets the
+      # domain here and the host in k8s/values/public-gateway.yaml together.
+      domain: grafana.iqbalhakim.site
+      root_url: "https://%(domain)s/"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+
+extraManifests:
+  # Pre-provisioned disk from Terraform (output prometheus_volume_id).
+  - apiVersion: v1
+    kind: PersistentVolume
+    metadata:
+      name: kps-prometheus-data
+      annotations:
+        pv.kubernetes.io/provisioned-by: dobs.csi.digitalocean.com
+    spec:
+      storageClassName: do-block-storage
+      persistentVolumeReclaimPolicy: Retain
+      capacity:
+        storage: 5Gi
+      accessModes: ["ReadWriteOnce"]
+      csi:
+        driver: dobs.csi.digitalocean.com
+        fsType: ext4
+        volumeHandle: 4fc64312-e101-11f1-a820-2e8a79e9469b   # terraform output prometheus_volume_id
+        volumeAttributes:
+          com.digitalocean.csi/noformat: "true"
+  # Grafana admin login, encrypted for this cluster only (make doks-seal-grafana).
+  - apiVersion: bitnami.com/v1alpha1
+    kind: SealedSecret
+    metadata:
+      name: grafana-admin
+      namespace: monitoring
+      annotations:
+        argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    spec:
+      encryptedData:
+        admin-user: SEALED_BY_MAKE_DOKS_SEAL_GRAFANA
+        admin-password: SEALED_BY_MAKE_DOKS_SEAL_GRAFANA
+      template:
+        metadata:
+          name: grafana-admin
+          namespace: monitoring

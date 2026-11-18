@@ -1,0 +1,38 @@
+# FinGuard itself: the Helm chart in this repo with the DOKS values.
+# Deploy = change k8s/values/doks.yaml (or the chart), commit, push.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: finguard
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iqbalhakims/finguard-ai.git
+    targetRevision: main
+    path: k8s/charts/finguard
+    helm:
+      releaseName: finguard
+      valueFiles:
+        - ../../values/doks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: finguard
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/enforce-version: latest
+    syncOptions:
+      - CreateNamespace=true
+    retry:                       # CRDs from cert-manager / sealed-secrets may still be installing
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

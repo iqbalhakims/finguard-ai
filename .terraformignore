@@ -15,8 +15,8 @@ reports/
 claude-memory/
 finguard/
 tests/
-deploy/
-overlays/
+k8s/
+compose/
 scripts/
 .github/
 terraform/.terraform/

@@ -1,0 +1,29 @@
+# FinGuard on DOKS (cluster do-sgp1-finguard from terraform/), deployed by Argo CD
+# (k8s/argocd/apps/finguard.yaml). Edit, commit, push: Argo CD syncs it.
+# Monitoring is kube-prometheus-stack (k8s/values/kube-prometheus-stack.yaml); the
+# public Grafana endpoint is k8s/values/public-gateway.yaml.
+
+image:
+  repository: registry.digitalocean.com/finai/finguard-api   # pulled via DOCR registry integration
+  tag: sha-b24e480     # CI tag to run (sha-<commit>)
+
+api:
+  replicas: 2
+  autoscaling:
+    enabled: false     # fixed size, no metrics-server needed
+
+simulator:
+  enabled: true
+  drift: false         # true = stream drifted traffic (drift demo)
+
+# Use kube-prometheus-stack instead of the bundled Prometheus/Grafana.
+prometheus:
+  enabled: false
+grafana:
+  enabled: false
+serviceMonitor:
+  enabled: true
+prometheusRule:
+  enabled: true
+grafanaDashboard:
+  sidecar: true

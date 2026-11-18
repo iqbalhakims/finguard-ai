@@ -21,12 +21,13 @@ resource "digitalocean_kubernetes_cluster" "this" {
     node_count = var.node_count
   }
 
-  # Destroy order: remove the cluster (which detaches the volumes) before the volumes.
-  depends_on = [digitalocean_volume.prometheus, digitalocean_volume.caddy]
+  # Destroy order: remove the cluster (which detaches the volume) before the volume.
+  depends_on = [digitalocean_volume.prometheus]
 }
 
 # Persistent disk for Prometheus. Kubernetes mounts it through a static
-# PersistentVolume in overlays/doks (volumeHandle = prometheus_volume_id output),
+# PersistentVolume in k8s/values/kube-prometheus-stack.yaml (volumeHandle =
+# prometheus_volume_id output, filled in by `make doks-volume`),
 # so the disk's lifecycle stays in Terraform, not in the cluster.
 resource "digitalocean_volume" "prometheus" {
   name                    = "${var.cluster_name}-prometheus"
@@ -34,14 +35,4 @@ resource "digitalocean_volume" "prometheus" {
   size                    = var.prometheus_volume_size_gb
   initial_filesystem_type = "ext4"
   description             = "FinGuard AI Prometheus metrics (TSDB)"
-}
-
-# Persistent disk for Caddy's Let's Encrypt certificates (public Grafana endpoint),
-# so pod restarts reuse the certificate instead of re-issuing it.
-resource "digitalocean_volume" "caddy" {
-  name                    = "${var.cluster_name}-caddy"
-  region                  = var.region
-  size                    = 1
-  initial_filesystem_type = "ext4"
-  description             = "FinGuard AI Caddy TLS certificates"
 }

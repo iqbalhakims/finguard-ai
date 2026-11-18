@@ -1,0 +1,13 @@
+FinGuard AI {{ .Chart.AppVersion }} deployed to namespace {{ .Release.Namespace }}.
+
+API (internal):  kubectl -n {{ .Release.Namespace }} port-forward svc/finguard-api 8080:80   # http://localhost:8080/docs
+{{- if .Values.grafana.enabled }}
+Grafana:         kubectl -n {{ .Release.Namespace }} port-forward svc/grafana 3300:3000     # http://localhost:3300
+{{- end }}
+{{- if .Values.prometheus.enabled }}
+Prometheus:      kubectl -n {{ .Release.Namespace }} port-forward svc/prometheus 9095:9090  # http://localhost:9095
+{{- end }}
+{{- if or .Values.serviceMonitor.enabled .Values.prometheusRule.enabled .Values.grafanaDashboard.sidecar }}
+Monitoring is handled by kube-prometheus-stack:
+  ServiceMonitor={{ .Values.serviceMonitor.enabled }} PrometheusRule={{ .Values.prometheusRule.enabled }} dashboard sidecar={{ .Values.grafanaDashboard.sidecar }}
+{{- end }}

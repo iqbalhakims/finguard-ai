@@ -17,15 +17,15 @@ variable "kubernetes_version_prefix" {
 }
 
 variable "node_size" {
-  description = "Droplet size for the worker nodes."
+  description = "Droplet size for the worker nodes. sgp1 is often out of the regular s-* sizes; the -amd variants are the same spec (doctl compute region list shows what is available)."
   type        = string
-  default     = "s-2vcpu-4gb"
+  default     = "s-2vcpu-4gb-amd"
 }
 
 variable "node_count" {
   description = "Number of worker nodes."
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "prometheus_volume_size_gb" {

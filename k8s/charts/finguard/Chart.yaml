@@ -1,0 +1,13 @@
+apiVersion: v2
+name: finguard
+description: >-
+  FinGuard AI fraud-scoring platform: FastAPI inference service, traffic simulator,
+  Prometheus (alerts + drift metrics), Grafana dashboards and an optional public
+  Grafana endpoint via the Kubernetes Gateway API + cert-manager.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [fraud-detection, mlops, xgboost, prometheus, grafana]
+home: https://github.com/iqbalhakims/finguard-ai
+sources:
+  - https://github.com/iqbalhakims/finguard-ai

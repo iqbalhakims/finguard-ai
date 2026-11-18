@@ -1,0 +1,141 @@
+{{- if .Values.grafana.enabled }}
+{{- $sel := dict "name" "grafana" -}}
+{{- $g := .Values.grafana -}}
+{{- $rootUrl := include "finguard.grafanaRootUrl" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+data:
+  datasources.yml: |
+    {{- .Files.Get "files/grafana/provisioning/datasources/datasources.yml" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+data:
+  dashboards.yml: |
+    {{- .Files.Get "files/grafana/provisioning/dashboards/dashboards.yml" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+data:
+  finguard.json: |
+    {{- .Files.Get "files/grafana/dashboards/finguard.json" | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+    {{- include "finguard.selector" $sel | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "finguard.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "finguard.labels" . | nindent 8 }}
+        {{- include "finguard.selector" $sel | nindent 8 }}
+        app.kubernetes.io/component: monitoring
+      annotations:
+        checksum/dashboards: {{ .Files.Get "files/grafana/dashboards/finguard.json" | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "finguard.podSecurity" (dict "root" . "extra" (dict "runAsUser" 472 "runAsGroup" 0 "fsGroup" 472)) | nindent 8 }}
+      containers:
+        - name: grafana
+          image: {{ $g.image }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ $g.admin.user | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $g.admin.secretName }}
+                  key: password
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: {{ $g.anonymousViewer | quote }}
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: Viewer
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/finguard.json
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+            {{- with $rootUrl }}
+            - name: GF_SERVER_ROOT_URL
+              value: {{ . | quote }}
+            - name: GF_SECURITY_COOKIE_SECURE
+              value: "true"
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          securityContext:
+            # Grafana writes plugins/sessions under /var/lib/grafana and /tmp at runtime.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+      volumes:
+        - name: storage
+          emptyDir: {}
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    {{- include "finguard.labels" . | nindent 4 }}
+    {{- include "finguard.selector" $sel | nindent 4 }}
+spec:
+  selector:
+    {{- include "finguard.selector" $sel | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+{{- end }}

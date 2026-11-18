@@ -16,11 +16,6 @@ output "kubeconfig_command" {
 }
 
 output "prometheus_volume_id" {
-  description = "Goes into overlays/doks/prometheus-storage.yaml as the PersistentVolume volumeHandle."
+  description = "PersistentVolume volumeHandle in k8s/values/kube-prometheus-stack.yaml (set by make doks-volume)."
   value       = digitalocean_volume.prometheus.id
-}
-
-output "caddy_volume_id" {
-  description = "Goes into overlays/doks/public-grafana.yaml as the PersistentVolume volumeHandle."
-  value       = digitalocean_volume.caddy.id
 }

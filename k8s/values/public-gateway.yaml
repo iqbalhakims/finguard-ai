@@ -1,0 +1,12 @@
+# Public Grafana on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
+# installed in the "monitoring" namespace next to kube-prometheus-stack's Grafana.
+gatewayClassName: cilium
+loadBalancerAnnotations:
+  service.beta.kubernetes.io/do-loadbalancer-name: finguard-public
+  service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
+
+host: grafana.iqbalhakim.site
+
+backend:
+  service: grafana   # kube-prometheus-stack Grafana (grafana.fullnameOverride)
+  port: 80

@@ -8,7 +8,8 @@ mlartifacts
 mlflow.db
 reports
 claude-memory
-deploy
+k8s
+compose
+terraform
 tests
 scripts
-terraform

@@ -1,0 +1,131 @@
+{{- $labels := dict "app.kubernetes.io/name" .Chart.Name "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/managed-by" .Release.Service "helm.sh/chart" (printf "%s-%s" .Chart.Name .Chart.Version) -}}
+# Public HTTPS endpoint via the Kubernetes Gateway API. On DOKS the "cilium"
+# GatewayClass is built in: Cilium's Envoy terminates TLS and creates the
+# LoadBalancer Service; DigitalOcean provisions the load balancer whose IP shows in
+# this Gateway's status. cert-manager issues the Let's Encrypt certificate through
+# an HTTP-01 challenge routed via the same Gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  gatewayClassName: {{ .Values.gatewayClassName }}
+  {{- with .Values.loadBalancerAnnotations }}
+  infrastructure:
+    annotations:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- if .Values.host }}
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .Values.host | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ .Values.tls.secretName }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+{{- if .Values.host }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-https
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Release.Name }}
+      sectionName: https
+  hostnames:
+    - {{ .Values.host | quote }}
+  rules:
+    - filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000
+              - name: X-Content-Type-Options
+                value: nosniff
+      backendRefs:
+        - name: {{ .Values.backend.service }}
+          port: {{ .Values.backend.port }}
+---
+# HTTP -> HTTPS. cert-manager's temporary ACME route matches the exact challenge
+# path, which is more specific, so it still wins while a certificate is issued.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-http-redirect
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Release.Name }}
+      sectionName: http
+  hostnames:
+    - {{ .Values.host | quote }}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Release.Name }}-letsencrypt
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  acme:
+    server: {{ .Values.tls.acmeServer }}
+    {{- with .Values.tls.acmeEmail }}
+    email: {{ . }}
+    {{- end }}
+    privateKeySecretRef:
+      name: {{ .Release.Name }}-letsencrypt-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: {{ .Release.Name }}
+                kind: Gateway
+                sectionName: http
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  secretName: {{ .Values.tls.secretName }}
+  dnsNames:
+    - {{ .Values.host | quote }}
+  issuerRef:
+    name: {{ .Release.Name }}-letsencrypt
+    kind: Issuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}

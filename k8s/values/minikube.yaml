@@ -1,0 +1,14 @@
+# Local install on minikube (make k8s-deploy). Image loaded with `minikube image load`.
+image:
+  repository: finguard-api
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+api:
+  autoscaling:
+    enabled: true        # minikube: `minikube addons enable metrics-server`
+
+grafana:
+  anonymousViewer: true
+  admin:
+    password: admin      # local only

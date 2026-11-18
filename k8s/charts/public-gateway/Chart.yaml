@@ -1,0 +1,8 @@
+apiVersion: v2
+name: public-gateway
+description: >-
+  Public HTTPS entry point for one in-cluster service via the Kubernetes Gateway API
+  (e.g. Cilium on DOKS) with a Let's Encrypt certificate from cert-manager.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,6 +1,0 @@
-# No autoscaling on DOKS: the API runs a fixed 2 replicas (set in the base Deployment).
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: finguard-api
-$patch: delete
