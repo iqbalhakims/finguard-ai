@@ -1,9 +1,14 @@
 {{- $labels := dict "app.kubernetes.io/name" .Chart.Name "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/managed-by" .Release.Service "helm.sh/chart" (printf "%s-%s" .Chart.Name .Chart.Version) -}}
+{{- $hosts := list -}}
+{{- if .Values.host -}}
+{{- $hosts = append $hosts .Values.host -}}
+{{- range .Values.extraRoutes }}{{ $hosts = append $hosts .host }}{{ end -}}
+{{- end -}}
 # Public HTTPS endpoint via the Kubernetes Gateway API. On DOKS the "cilium"
 # GatewayClass is built in: Cilium's Envoy terminates TLS and creates the
 # LoadBalancer Service; DigitalOcean provisions the load balancer whose IP shows in
-# this Gateway's status. cert-manager issues the Let's Encrypt certificate through
-# an HTTP-01 challenge routed via the same Gateway.
+# this Gateway's status. cert-manager issues one Let's Encrypt certificate for every
+# host through an HTTP-01 challenge routed via the same Gateway.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -24,11 +29,11 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
-    {{- if .Values.host }}
+    {{- if $hosts }}
+    # No listener hostname: the HTTPRoutes pick the hosts, and the certificate covers all of them.
     - name: https
       protocol: HTTPS
       port: 443
-      hostname: {{ .Values.host | quote }}
       tls:
         mode: Terminate
         certificateRefs:
@@ -37,7 +42,7 @@ spec:
         namespaces:
           from: Same
     {{- end }}
-{{- if .Values.host }}
+{{- if $hosts }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -57,16 +62,59 @@ spec:
     - {{ .Values.host | quote }}
   rules:
     - filters:
-        - type: ResponseHeaderModifier
-          responseHeaderModifier:
-            set:
-              - name: Strict-Transport-Security
-                value: max-age=31536000
-              - name: X-Content-Type-Options
-                value: nosniff
+        {{- include "public-gateway.securityHeaders" . | nindent 8 }}
       backendRefs:
         - name: {{ .Values.backend.service }}
           port: {{ .Values.backend.port }}
+{{- range .Values.extraRoutes }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $.Release.Name }}-{{ .name }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  {{- with $.Values.dnsTtl }}
+  annotations:
+    external-dns.kubernetes.io/ttl: {{ . | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ $.Release.Name }}
+      sectionName: https
+  hostnames:
+    - {{ .host | quote }}
+  rules:
+    - filters:
+        {{- include "public-gateway.securityHeaders" $ | nindent 8 }}
+      backendRefs:
+        - name: {{ .service }}
+          {{- with .namespace }}
+          namespace: {{ . }}
+          {{- end }}
+          port: {{ .port }}
+{{- if .namespace }}
+---
+# Lets the HTTPRoute above (in this release's namespace) send traffic to a Service
+# in another namespace.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: {{ $.Release.Name }}-{{ .name }}
+  namespace: {{ .namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: {{ $.Release.Namespace }}
+  to:
+    - group: ""
+      kind: Service
+      name: {{ .service }}
+{{- end }}
+{{- end }}
 ---
 # HTTP -> HTTPS. cert-manager's temporary ACME route matches the exact challenge
 # path, which is more specific, so it still wins while a certificate is issued.
@@ -85,7 +133,9 @@ spec:
     - name: {{ .Release.Name }}
       sectionName: http
   hostnames:
-    - {{ .Values.host | quote }}
+    {{- range $hosts }}
+    - {{ . | quote }}
+    {{- end }}
   rules:
     - filters:
         - type: RequestRedirect
@@ -128,7 +178,9 @@ metadata:
 spec:
   secretName: {{ .Values.tls.secretName }}
   dnsNames:
-    - {{ .Values.host | quote }}
+    {{- range $hosts }}
+    - {{ . | quote }}
+    {{- end }}
   issuerRef:
     name: {{ .Release.Name }}-letsencrypt
     kind: Issuer

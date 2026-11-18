@@ -281,14 +281,18 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 |---|---|---|
 | `cert-manager` | Official chart v1.21.3, Gateway API support on | `cert-manager` |
 | `sealed-secrets` | Official chart 2.22.0 (controller 0.41.2) | `kube-system` |
-| `external-dns` | Official chart 1.23.0: keeps `grafana.iqbalhakim.site` in **Cloudflare** pointed at the current Gateway IP. Only HTTPRoute hosts under `iqbalhakim.site`, **upsert-only** (never deletes), TXT ownership records (only touches records it created), DNS only (not proxied), TTL 60s | `external-dns` |
+| `external-dns` | Official chart 1.23.0: keeps `grafana.iqbalhakim.site` and `argo.iqbalhakim.site` in **Cloudflare** pointed at the current Gateway IP. Only HTTPRoute hosts under `iqbalhakim.site`, **upsert-only** (never deletes), TXT ownership records (only touches records it created), DNS only (not proxied), TTL 60s | `external-dns` |
 | `kube-prometheus-stack` | Official chart 92.17.0 with [values](k8s/values/kube-prometheus-stack.yaml): Prometheus on the **Terraform volume** (15 days, max 4 GB), Grafana (login required), Alertmanager, kube-state-metrics, node-exporter. Picks up ServiceMonitors, rules and dashboards from every namespace | `monitoring` |
 | `finguard` | [This chart](k8s/charts/finguard/) with [doks.yaml](k8s/values/doks.yaml): registry image `sha-<commit>`, 2 API replicas, simulator, ServiceMonitor, PrometheusRule, dashboard | `finguard` |
-| `public-gateway` | [Gateway chart](k8s/charts/public-gateway/): **Cilium Gateway API** (built into DOKS) → Grafana, HTTP→HTTPS redirect, HSTS, **Let's Encrypt** via cert-manager HTTP-01 | `monitoring` |
+| `public-gateway` | [Gateway chart](k8s/charts/public-gateway/): **Cilium Gateway API** (built into DOKS) → Grafana and the Argo CD UI (one load balancer, one certificate), HTTP→HTTPS redirect, HSTS, **Let's Encrypt** via cert-manager HTTP-01 | `monitoring` |
 | `secrets` | The SealedSecrets in [k8s/secrets/](k8s/secrets/): Grafana login, Cloudflare token | per file |
 
-Only Grafana is public, at `https://grafana.iqbalhakim.site`. The API and Prometheus
-stay internal (ClusterIP).
+Public: Grafana at `https://grafana.iqbalhakim.site` and the Argo CD UI at
+`https://argo.iqbalhakim.site` (login `admin`, password in
+`k8s/.secrets/argocd-admin-password`, set by `make argocd-bootstrap` and kept across
+rebuilds). More hosts go under `extraRoutes` in
+[k8s/values/public-gateway.yaml](k8s/values/public-gateway.yaml). The API and
+Prometheus stay internal (ClusterIP).
 
 **One-time setup** (with the cluster running):
 
@@ -329,7 +333,7 @@ and commit.
 ```bash
 make argocd-status               # sync / health of all apps
 make doks-cert-status            # gateway, routes, certificate
-make argocd-ui                   # Argo CD UI on https://localhost:8443
+make argocd-ui                   # Argo CD UI via port-forward on http://localhost:8443
 make doks-forward                # internal: API :8080 · Grafana :3300 · Prometheus :9095
 ```
 

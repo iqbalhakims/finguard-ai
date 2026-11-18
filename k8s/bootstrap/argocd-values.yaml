@@ -1,19 +1,22 @@
 # Argo CD (chart argo/argo-cd 10.11.6 = Argo CD v3.5.6), installed once by
 # `make argocd-bootstrap`. After that, Argo CD manages everything under k8s/argocd/.
-# Kept small for a single-node cluster; the UI stays internal (port-forward).
+# Kept small for a single-node cluster. The UI is public at https://argo.iqbalhakim.site
+# through the Cilium Gateway (k8s/values/public-gateway.yaml, extraRoutes).
 global:
-  domain: argocd.local
+  domain: argo.iqbalhakim.site
 
 configs:
   params:
-    server.insecure: false
+    server.insecure: true   # TLS ends at the Gateway; argocd-server serves plain HTTP behind it
+  # configs.secret.argocdServerAdminPassword is passed by `make argocd-bootstrap` (bcrypt of
+  # k8s/.secrets/argocd-admin-password, gitignored), so the login survives cluster rebuilds.
 
 server:
   service:
     type: ClusterIP
 
 dex:
-  enabled: false            # no SSO; log in with the initial admin password
+  enabled: false            # no SSO; log in as admin
 
 notifications:
   enabled: false

@@ -1,4 +1,4 @@
-# Public Grafana on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
+# Public Grafana and Argo CD on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
 # installed in the "monitoring" namespace next to kube-prometheus-stack's Grafana.
 gatewayClassName: cilium
 loadBalancerAnnotations:
@@ -10,6 +10,13 @@ host: grafana.iqbalhakim.site
 backend:
   service: grafana   # kube-prometheus-stack Grafana (grafana.fullnameOverride)
   port: 80
+
+extraRoutes:
+  - name: argocd
+    host: argo.iqbalhakim.site
+    service: argocd-server   # plain HTTP: server.insecure in k8s/bootstrap/argocd-values.yaml
+    namespace: argocd
+    port: 80
 
 # external-dns keeps the Cloudflare record on the current Gateway IP (k8s/argocd/apps/external-dns.yaml)
 dnsTtl: 60

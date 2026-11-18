@@ -133,17 +133,27 @@ BACKUP_DIR      := k8s/.secrets
 ARGOCD_CHART_VERSION := 10.11.6
 
 argocd-bootstrap: ## Install Argo CD once with Helm, then apply the root app (everything else is GitOps)
+	@# Fixed admin password from k8s/.secrets/ (gitignored, created on first run), bcrypt-hashed
+	@# here, so the login stays the same across cluster rebuilds. Read via stdin, never argv.
+	@mkdir -p $(BACKUP_DIR); test -f $(BACKUP_DIR)/argocd-admin-password || { \
+	  umask 077; openssl rand -base64 24 | tr -d '/+=\n' > $(BACKUP_DIR)/argocd-admin-password; }
+	@hash=$$(htpasswd -niBC 10 '' < $(BACKUP_DIR)/argocd-admin-password | tr -d ':\n' | sed 's/^\$$2y/$$2a/'); \
+	test -n "$$hash" || { echo "could not hash the Argo CD password (htpasswd missing?)"; exit 1; }; \
+	echo "helm upgrade --install argocd (admin password: $(BACKUP_DIR)/argocd-admin-password)"; \
 	helm --kube-context $(DOKS_CONTEXT) upgrade --install argocd argo-cd \
 	  --repo https://argoproj.github.io/argo-helm --version $(ARGOCD_CHART_VERSION) \
-	  -n argocd --create-namespace -f k8s/bootstrap/argocd-values.yaml --wait --timeout 10m
+	  -n argocd --create-namespace -f k8s/bootstrap/argocd-values.yaml \
+	  --set-string configs.secret.argocdServerAdminPassword="$$hash" --wait --timeout 10m
+	@# Only valid until the first fixed password is set; remove it so nobody uses a stale one.
+	$(DOKS_KUBECTL) -n argocd delete secret argocd-initial-admin-secret --ignore-not-found
 	$(DOKS_KUBECTL) apply -f k8s/argocd/root.yaml
 
 argocd-status: ## Sync and health status of all Argo CD applications
 	$(DOKS_KUBECTL) -n argocd get applications
 
-argocd-ui: ## Argo CD UI at https://localhost:8443 (prints the initial admin password)
-	@echo "user: admin   password: $$($(DOKS_KUBECTL) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
-	$(DOKS_KUBECTL) -n argocd port-forward svc/argocd-server 8443:443
+argocd-ui: ## Argo CD UI via port-forward at http://localhost:8443 (public: https://argo.iqbalhakim.site)
+	@echo "user: admin   password: in $(BACKUP_DIR)/argocd-admin-password (pbcopy < $(BACKUP_DIR)/argocd-admin-password)"
+	$(DOKS_KUBECTL) -n argocd port-forward svc/argocd-server 8443:80
 
 doks-seal-grafana: ## Seal a random Grafana admin login into k8s/secrets/grafana-admin.yaml (needs kubeseal)
 	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
@@ -188,7 +198,7 @@ doks-up: ## After HCP created the cluster (cluster_enabled=true): kubeconfig, re
 	doctl kubernetes cluster kubeconfig save $(DOKS_CLUSTER) --set-current-context=false
 	$(MAKE) doks-restore
 	$(MAKE) argocd-bootstrap
-	@echo "Argo CD is syncing (make argocd-status). external-dns points grafana.iqbalhakim.site at the new IP in ~2 min."
+	@echo "Argo CD is syncing (make argocd-status). external-dns points grafana./argo.iqbalhakim.site at the new IP in ~2 min."
 
 doks-volume: ## Put the Terraform-created Prometheus volume ID into k8s/values/kube-prometheus-stack.yaml
 	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-prometheus"{print $$1}'); \

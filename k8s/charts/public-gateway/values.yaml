@@ -13,6 +13,16 @@ backend:
   service: grafana
   port: 80
 
+# More public hosts on the same Gateway, load balancer and certificate (only when
+# `host` is set). `namespace` = the Service lives elsewhere; a ReferenceGrant is
+# created there so the route may reach it.
+#   - name: argocd                 # route name suffix
+#     host: argo.example.com
+#     service: argocd-server
+#     namespace: argocd
+#     port: 80
+extraRoutes: []
+
 # DNS TTL (seconds) that external-dns sets for the host record; empty = provider default.
 dnsTtl: ""
 
