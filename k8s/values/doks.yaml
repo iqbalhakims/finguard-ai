@@ -5,7 +5,7 @@
 
 image:
   repository: registry.digitalocean.com/finai/finguard-api   # pulled via DOCR registry integration
-  tag: sha-b24e480     # CI tag to run (sha-<commit>)
+  tag: sha-90219db     # CI tag to run (sha-<commit>)
 
 api:
   replicas: 2
