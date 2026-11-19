@@ -25,7 +25,7 @@ variable "kubernetes_version_prefix" {
 variable "node_size" {
   description = "Droplet size for the worker nodes. sgp1 is often out of the regular s-* sizes; the -amd variants are the same spec (doctl compute region list shows what is available)."
   type        = string
-  default     = "s-2vcpu-4gb-amd"
+  default     = "s-4vcpu-8gb-amd" # 2vcpu/4gb ran at ~84% memory requested; room for OTel (Collector + Tempo)
 }
 
 variable "node_count" {
