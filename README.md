@@ -426,7 +426,7 @@ Collector's OTLP/HTTP endpoint. It requires a bearer token, kept in
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.iqbalhakim.site
-export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $(cat k8s/.secrets/otel-ingest-token)"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20$(cat k8s/.secrets/otel-ingest-token)"   # %20: header values must be URL-encoded
 export OTEL_SERVICE_NAME=my-app     # any OTLP/HTTP SDK or collector picks these up
 ```
 

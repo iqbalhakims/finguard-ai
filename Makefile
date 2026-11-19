@@ -17,7 +17,7 @@ API_PORT         ?= 8000
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete helm-lint \
         argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-volume doks-set-host doks-public-ip \
-        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel doks-backup doks-restore doks-up doks-down
+        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel trace-demo doks-backup doks-restore doks-up doks-down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -186,6 +186,9 @@ doks-seal-otel: ## Seal a random OTLP ingest token for https://otel.iqbalhakim.s
 	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/otel-ingest-token.yaml.tmp; \
 	test -s $(SECRETS_DIR)/otel-ingest-token.yaml.tmp && mv $(SECRETS_DIR)/otel-ingest-token.yaml.tmp $(SECRETS_DIR)/otel-ingest-token.yaml \
 	  && echo "wrote $(SECRETS_DIR)/otel-ingest-token.yaml (commit it). Clients send: Authorization: Bearer <$(BACKUP_DIR)/otel-ingest-token>"
+
+trace-demo: ## Send traced demo checkouts laptop -> API (needs `make doks-forward` running); prints trace IDs for Tempo
+	$(PY) scripts/trace_demo.py --count 6
 
 doks-backup: ## Back up the Sealed Secrets keys + TLS certificate to k8s/.secrets/ (gitignored)
 	$(PY) scripts/doks_secrets.py backup --context $(DOKS_CONTEXT) --dir $(BACKUP_DIR)
