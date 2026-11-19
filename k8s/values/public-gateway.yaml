@@ -17,6 +17,13 @@ extraRoutes:
     service: argocd-server   # plain HTTP: server.insecure in k8s/bootstrap/argocd-values.yaml
     namespace: argocd
     port: 80
+  # OTLP/HTTP ingest for apps outside the cluster (POST /v1/traces). Port 4319 requires
+  # "Authorization: Bearer <token>" (k8s/.secrets/otel-ingest-token); 4317/4318 stay internal.
+  - name: otel
+    host: otel.iqbalhakim.site
+    service: otel-collector
+    namespace: observability
+    port: 4319
 
 # external-dns keeps the Cloudflare record on the current Gateway IP (k8s/argocd/apps/external-dns.yaml)
 dnsTtl: 60

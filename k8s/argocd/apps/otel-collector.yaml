@@ -1,0 +1,101 @@
+# OpenTelemetry Collector (official chart 0.178.2, collector-contrib 0.163.2).
+#   :4317/:4318  OTLP for in-cluster apps (FinGuard API), no auth
+#   :4319        OTLP/HTTP for outside apps, bearer token required; the only port
+#                exposed publicly, at https://otel.iqbalhakim.site (public-gateway)
+# Traces -> Tempo (k8s/charts/tempo). Metrics stay on Prometheus scraping.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: 0.178.2
+    helm:
+      releaseName: otel-collector
+      valuesObject:
+        mode: deployment
+        fullnameOverride: otel-collector
+        image:
+          repository: otel/opentelemetry-collector-contrib
+          tag: "0.163.2"
+        presets:
+          kubernetesAttributes:
+            enabled: true          # adds k8s.pod.name / namespace / deployment to every span
+        extraEnvs:
+          - name: OTEL_INGEST_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: otel-ingest-token   # SealedSecret: k8s/secrets/otel-ingest-token.yaml
+                key: token
+        ports:
+          otlp-public:
+            enabled: true
+            containerPort: 4319
+            servicePort: 4319
+            protocol: TCP
+          jaeger-compact: { enabled: false }
+          jaeger-thrift: { enabled: false }
+          jaeger-grpc: { enabled: false }
+          zipkin: { enabled: false }
+        config:
+          extensions:
+            bearertokenauth/public:
+              scheme: Bearer
+              token: ${env:OTEL_INGEST_TOKEN}
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: ${env:MY_POD_IP}:4317
+                http:
+                  endpoint: ${env:MY_POD_IP}:4318
+            otlp/public:
+              protocols:
+                http:
+                  endpoint: ${env:MY_POD_IP}:4319
+                  auth:
+                    authenticator: bearertokenauth/public
+            jaeger: null
+            zipkin: null
+            prometheus: null
+          processors:
+            batch: {}
+            memory_limiter:
+              check_interval: 5s
+              limit_percentage: 80
+              spike_limit_percentage: 25
+          exporters:
+            otlp/tempo:
+              endpoint: tempo.observability.svc:4317
+              tls:
+                insecure: true
+          service:
+            extensions: [health_check, bearertokenauth/public]
+            pipelines:
+              traces:
+                receivers: [otlp, otlp/public]
+                processors: [memory_limiter, k8sattributes, batch]
+                exporters: [otlp/tempo]
+              metrics: null
+              logs: null
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

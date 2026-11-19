@@ -1,0 +1,15 @@
+image:
+  repository: grafana/tempo
+  tag: "2.10.10"
+
+# How long traces are kept. Storage is an emptyDir: traces also reset whenever the
+# pod or the (daily rebuilt) cluster is recreated, which is fine for request traces.
+retention: 72h
+storageSizeLimit: 2Gi
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 192Mi
+  limits:
+    memory: 768Mi

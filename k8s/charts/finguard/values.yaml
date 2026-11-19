@@ -44,6 +44,14 @@ api:
     enabled: true
     minAvailable: 1
 
+# OpenTelemetry tracing for the API (OTLP/HTTP to a collector). Off by default.
+otel:
+  enabled: false
+  endpoint: http://otel-collector.observability.svc:4318
+  serviceName: finguard-api
+  samplerRatio: "1.0"          # fraction of requests traced (parent-based)
+  resourceAttributes: ""       # e.g. deployment.environment=doks
+
 simulator:
   enabled: true
   rps: 10

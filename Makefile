@@ -17,7 +17,7 @@ API_PORT         ?= 8000
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete helm-lint \
         argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-volume doks-set-host doks-public-ip \
-        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-backup doks-restore doks-up doks-down
+        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel doks-backup doks-restore doks-up doks-down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -120,6 +120,8 @@ helm-lint: ## Lint and render the charts with every values file
 	helm template finguard $(CHART) -n finguard -f k8s/values/doks.yaml > /dev/null
 	helm template finguard $(CHART) -n finguard -f k8s/values/minikube.yaml > /dev/null
 	helm template public-gateway k8s/charts/public-gateway -n monitoring -f k8s/values/public-gateway.yaml --set host=ci.example.com > /dev/null
+	helm lint k8s/charts/tempo
+	helm template tempo k8s/charts/tempo -n observability > /dev/null
 
 # ----------------------------------------------------------------------------- DOKS via GitOps (Argo CD + Helm)
 # After bootstrap, deploying = edit k8s/ (chart or values/doks.yaml), commit, push.
@@ -174,6 +176,16 @@ doks-seal-cloudflare: ## Seal your Cloudflare API token for external-dns (prompt
 	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/cloudflare-api-token.yaml.tmp; \
 	test -s $(SECRETS_DIR)/cloudflare-api-token.yaml.tmp && mv $(SECRETS_DIR)/cloudflare-api-token.yaml.tmp $(SECRETS_DIR)/cloudflare-api-token.yaml \
 	  && echo "wrote $(SECRETS_DIR)/cloudflare-api-token.yaml (commit it)"
+
+doks-seal-otel: ## Seal a random OTLP ingest token for https://otel.iqbalhakim.site (plain copy: k8s/.secrets/otel-ingest-token)
+	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
+	@mkdir -p $(BACKUP_DIR); test -f $(BACKUP_DIR)/otel-ingest-token || { \
+	  umask 077; openssl rand -hex 32 | tr -d '\n' > $(BACKUP_DIR)/otel-ingest-token; }
+	@$(DOKS_KUBECTL) create secret generic otel-ingest-token -n observability --dry-run=client -o yaml \
+	  --from-file=token=$(BACKUP_DIR)/otel-ingest-token \
+	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/otel-ingest-token.yaml.tmp; \
+	test -s $(SECRETS_DIR)/otel-ingest-token.yaml.tmp && mv $(SECRETS_DIR)/otel-ingest-token.yaml.tmp $(SECRETS_DIR)/otel-ingest-token.yaml \
+	  && echo "wrote $(SECRETS_DIR)/otel-ingest-token.yaml (commit it). Clients send: Authorization: Bearer <$(BACKUP_DIR)/otel-ingest-token>"
 
 doks-backup: ## Back up the Sealed Secrets keys + TLS certificate to k8s/.secrets/ (gitignored)
 	$(PY) scripts/doks_secrets.py backup --context $(DOKS_CONTEXT) --dir $(BACKUP_DIR)

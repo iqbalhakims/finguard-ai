@@ -27,3 +27,10 @@ prometheusRule:
   enabled: true
 grafanaDashboard:
   sidecar: true
+
+# Traces -> OpenTelemetry Collector -> Tempo (k8s/argocd/apps/otel-collector.yaml, tempo.yaml).
+# 10%: the simulator sends ~10 req/s; Tempo keeps 72h on a 2 GiB emptyDir.
+otel:
+  enabled: true
+  samplerRatio: "0.1"
+  resourceAttributes: deployment.environment=doks

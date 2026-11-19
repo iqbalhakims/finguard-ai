@@ -27,6 +27,9 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
+    # Keep trace_id exemplars from the FinGuard API (latency histogram -> Tempo trace).
+    enableFeatures:
+      - exemplar-storage
     retention: 15d
     retentionSize: 4GB
     resources:
@@ -72,7 +75,24 @@ grafana:
       # domain here and the host in k8s/values/public-gateway.yaml together.
       domain: grafana.iqbalhakim.site
       root_url: "https://%(domain)s/"
+  # Traces from Tempo (k8s/charts/tempo, fed by the OpenTelemetry Collector).
+  additionalDataSources:
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability.svc:3200
+      jsonData:
+        nodeGraph:
+          enabled: true
+        search:
+          hide: false
   sidecar:
+    datasources:
+      # Exemplar dots on Prometheus panels link to the trace in Tempo.
+      exemplarTraceIdDestinations:
+        datasourceUid: tempo
+        traceIdLabelName: trace_id
     dashboards:
       enabled: true
       label: grafana_dashboard

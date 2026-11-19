@@ -286,6 +286,8 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 | `finguard` | [This chart](k8s/charts/finguard/) with [doks.yaml](k8s/values/doks.yaml): registry image `sha-<commit>`, 2 API replicas, simulator, ServiceMonitor, PrometheusRule, dashboard | `finguard` |
 | `public-gateway` | [Gateway chart](k8s/charts/public-gateway/): **Cilium Gateway API** (built into DOKS) → Grafana and the Argo CD UI (one load balancer, one certificate), HTTP→HTTPS redirect, HSTS, **Let's Encrypt** via cert-manager HTTP-01 | `monitoring` |
 | `secrets` | The SealedSecrets in [k8s/secrets/](k8s/secrets/): Grafana login, Cloudflare token | per file |
+| `otel-collector` | Official chart 0.178.2: OTLP traces in (in-cluster without a token, `otel.iqbalhakim.site` with a bearer token) → Tempo | `observability` |
+| `tempo` | [Tempo chart](k8s/charts/tempo/): trace storage (72 h), Grafana datasource | `observability` |
 
 Public: Grafana at `https://grafana.iqbalhakim.site` and the Argo CD UI at
 `https://argo.iqbalhakim.site` (login `admin`, password in
@@ -398,6 +400,38 @@ Alert rules ([alerts.yml](k8s/charts/finguard/files/prometheus/alerts.yml)):
 | `FinGuardFraudFlagRateSpike` | more than 5% of transactions are flagged |
 | `FinGuardDataDrift` | the drift verdict is positive |
 | `FinGuardPredictionDrift` | score PSI is 0.25 or higher |
+
+### Traces (OpenTelemetry)
+
+The API emits **OpenTelemetry traces** when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+([telemetry.py](finguard/api/telemetry.py)); without it, tracing is off.
+
+- **Spans:** one server span per request (FastAPI auto-instrumentation), with child spans `features.build`, `model.predict`, `shap.explain` and `drift.observe`. Spans carry the model version, batch size, decision and fraud probability.
+- **Logs:** every log line includes `trace_id` and `span_id`.
+- **Exemplars:** the request-latency histogram carries `trace_id` exemplars. In Grafana, the dots on a latency panel open the trace behind that request.
+
+On DOKS:
+
+| Component | What | Where |
+|---|---|---|
+| `otel-collector` | Official chart 0.178.2 (collector-contrib 0.163.2). OTLP in, adds Kubernetes attributes, batches, sends to Tempo | `observability` |
+| `tempo` | Small [chart](k8s/charts/tempo/) running Tempo 2.10 as a single binary, 72 h retention, temporary storage (traces reset on rebuild) | `observability` |
+| Grafana | Tempo datasource; Prometheus exemplars link to it | `grafana.iqbalhakim.site` |
+
+The API samples **10%** of requests (`otel.samplerRatio` in [doks.yaml](k8s/values/doks.yaml)).
+
+**Sending traces from outside the cluster:** `https://otel.iqbalhakim.site` is the
+Collector's OTLP/HTTP endpoint. It requires a bearer token, kept in
+`k8s/.secrets/otel-ingest-token` (sealed into the cluster by `make doks-seal-otel`):
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.iqbalhakim.site
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $(cat k8s/.secrets/otel-ingest-token)"
+export OTEL_SERVICE_NAME=my-app     # any OTLP/HTTP SDK or collector picks these up
+```
+
+In-cluster apps send to `http://otel-collector.observability.svc:4318` without a token;
+that port isn't exposed publicly.
 
 ## 10 · Drift detection
 

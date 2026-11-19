@@ -1,0 +1,9 @@
+apiVersion: v2
+name: tempo
+description: >-
+  Grafana Tempo in single-binary mode for a small cluster: OTLP in, local storage,
+  query API for Grafana. (Grafana's own single-binary `tempo` chart is deprecated and
+  `tempo-distributed` is too heavy for one node.)
+type: application
+version: 0.1.0
+appVersion: "2.10.10"

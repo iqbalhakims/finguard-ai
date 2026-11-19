@@ -1,0 +1,26 @@
+# Grafana Tempo (single binary, k8s/charts/tempo): stores traces from the
+# OpenTelemetry Collector; queried by Grafana (datasource "Tempo").
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iqbalhakims/finguard-ai.git
+    targetRevision: main
+    path: k8s/charts/tempo
+    helm:
+      releaseName: tempo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,85 @@
+{{- $labels := dict "app.kubernetes.io/name" "tempo" "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/managed-by" .Release.Service "helm.sh/chart" (printf "%s-%s" .Chart.Name .Chart.Version) -}}
+{{- $selector := dict "app.kubernetes.io/name" "tempo" -}}
+{{- $config := include "tempo.config" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+data:
+  tempo.yaml: |
+    {{- $config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- toYaml $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tempo
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          args: ["-config.file=/conf/tempo.yaml"]
+          ports:
+            - { name: http, containerPort: 3200 }
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: config, mountPath: /conf }
+            - { name: data, mountPath: /var/tempo }
+      volumes:
+        - name: config
+          configMap:
+            name: tempo
+        - name: data
+          emptyDir:
+            sizeLimit: {{ .Values.storageSizeLimit }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  selector:
+    {{- toYaml $selector | nindent 4 }}
+  ports:
+    - { name: http, port: 3200, targetPort: http }
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }

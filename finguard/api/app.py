@@ -28,10 +28,12 @@ from pathlib import Path
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST as OPENMETRICS_CONTENT_TYPE
+from prometheus_client.openmetrics.exposition import generate_latest as generate_openmetrics
 
 from finguard import __version__
-from finguard.api import metrics
+from finguard.api import metrics, telemetry
 from finguard.api.monitor import DriftMonitor
 from finguard.api.schemas import BatchRequest, BatchResponse, Prediction, Transaction
 from finguard.config import MODEL_DIR
@@ -42,9 +44,12 @@ from finguard.model import ModelBundle
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    format="%(asctime)s %(levelname)s %(name)s trace_id=%(trace_id)s span_id=%(span_id)s %(message)s",
 )
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(telemetry.TraceContextFilter())
 logger = logging.getLogger("finguard.api")
+tracer = telemetry.tracer
 
 MODEL_PATH = Path(os.getenv("FINGUARD_MODEL_DIR", MODEL_DIR))
 DRIFT_WINDOW_SIZE = int(os.getenv("DRIFT_WINDOW_SIZE", "2000"))
@@ -77,17 +82,23 @@ class FraudService:
 
     def score(self, transactions: list[Transaction], explain: bool = False) -> list[Prediction]:
         b = self.bundle
+        common = {"finguard.batch_size": len(transactions), "finguard.model_version": b.version}
         df = self.to_frame(transactions)
         with metrics.INFERENCE_LATENCY.labels(stage="predict").time():
-            features = build_features(df)
-            scores = b.predict_proba(features)
+            with tracer.start_as_current_span("features.build", attributes=common):
+                features = build_features(df)
+            with tracer.start_as_current_span("model.predict", attributes={**common, "finguard.model_type": b.model_type}) as span:
+                scores = b.predict_proba(features)
+                span.set_attribute("finguard.max_fraud_probability", float(scores.max()))
 
         explanations = None
         if explain:
             with metrics.INFERENCE_LATENCY.labels(stage="explain").time():
-                explanations = self.explainer.top_contributions(features, EXPLAIN_TOP_K)
+                with tracer.start_as_current_span("shap.explain", attributes={**common, "finguard.top_k": EXPLAIN_TOP_K}):
+                    explanations = self.explainer.top_contributions(features, EXPLAIN_TOP_K)
 
-        self.monitor.observe(monitoring_frame(df), scores)
+        with tracer.start_as_current_span("drift.observe", attributes=common):
+            self.monitor.observe(monitoring_frame(df), scores)
 
         predictions = []
         for i, (txn, score) in enumerate(zip(transactions, scores)):
@@ -98,6 +109,10 @@ class FraudService:
             metrics.SCORED_AMOUNT.labels(decision=decision).inc(txn.amount)
             if decision == "block":
                 logger.info("blocked transaction_id=%s score=%.4f", txn.transaction_id, score)
+            if len(transactions) == 1:
+                current = telemetry.trace.get_current_span()
+                current.set_attribute("finguard.decision", decision)
+                current.set_attribute("finguard.fraud_probability", round(score, 6))
             predictions.append(
                 Prediction(
                     transaction_id=txn.transaction_id,
@@ -172,7 +187,11 @@ async def prometheus_middleware(request: Request, call_next):
         route = request.scope.get("route")
         path = getattr(route, "path", "unmatched")
         if path != "/metrics":
-            metrics.HTTP_LATENCY.labels(request.method, path).observe(time.perf_counter() - start)
+            # trace_id exemplar: lets Grafana jump from a latency bucket to the trace
+            trace_id = telemetry.current_trace_id()
+            metrics.HTTP_LATENCY.labels(request.method, path).observe(
+                time.perf_counter() - start, exemplar={"trace_id": trace_id} if trace_id else None
+            )
             metrics.HTTP_REQUESTS.labels(request.method, path, str(status)).inc()
 
 
@@ -200,7 +219,10 @@ def ready(request: Request) -> dict:
 
 
 @app.get("/metrics", include_in_schema=False)
-def prometheus_metrics() -> Response:
+def prometheus_metrics(request: Request) -> Response:
+    # Exemplars only exist in the OpenMetrics format, which Prometheus requests itself.
+    if "application/openmetrics-text" in request.headers.get("accept", ""):
+        return Response(generate_openmetrics(REGISTRY), media_type=OPENMETRICS_CONTENT_TYPE)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -243,3 +265,8 @@ def drift(request: Request, refresh: bool = Query(False, description="Recompute 
 def drift_reset(request: Request) -> dict:
     _service(request).monitor.reset()
     return {"status": "reset"}
+
+
+# Last, so the OpenTelemetry middleware wraps the metrics middleware above (the request
+# span is then active when latency exemplars are recorded). No-op without an OTLP endpoint.
+telemetry.setup(app)
