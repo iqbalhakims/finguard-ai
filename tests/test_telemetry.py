@@ -71,3 +71,41 @@ def test_latency_exemplars_link_to_traces(bundle_dir, txn):
     }
     out = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=120)
     assert "EXEMPLAR" in out.stdout, out.stdout + out.stderr[-2000:]
+
+
+def test_simulator_calls_are_client_spans_with_trace_context():
+    """The simulator's call becomes a CLIENT span whose context reaches the API (service-graph edge)."""
+    import json as _json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from finguard import simulate
+
+    seen = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen["traceparent"] = self.headers.get("traceparent")
+            self.rfile.read(int(self.headers["Content-Length"]))
+            body = _json.dumps({"decision": "block", "is_fraud": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.handle_request, daemon=True).start()
+    _exporter.clear()
+    stats = simulate.Stats()
+    simulate.send(f"http://127.0.0.1:{server.server_port}", {"transaction_id": "t"}, 1, False, stats)
+    server.server_close()
+
+    span = next(s for s in _exporter.get_finished_spans() if s.name == "card.authorise")
+    assert span.kind == trace.SpanKind.CLIENT
+    assert span.attributes["finguard.decision"] == "block"
+    trace_id = format(span.context.trace_id, "032x")
+    assert seen["traceparent"] and seen["traceparent"].split("-")[1] == trace_id
+    assert stats.c["block"] == 1 and stats.c["tp"] == 1

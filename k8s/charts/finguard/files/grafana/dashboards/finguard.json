@@ -16,7 +16,7 @@
     "to": "now"
   },
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "templating": {
     "list": []
   },
@@ -2578,6 +2578,50 @@
         "showHeader": true,
         "cellHeight": "sm"
       },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Service graph",
+      "id": 35,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      }
+    },
+    {
+      "type": "nodeGraph",
+      "title": "Service graph (from traces)",
+      "id": 36,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Built by Tempo's metrics-generator from client/server spans: request rate, error rate and latency per service and per call. traffic-simulator plays the card-authorisation system.",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 64
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "serviceMap"
+        }
+      ],
+      "options": {},
       "fieldConfig": {
         "defaults": {},
         "overrides": []

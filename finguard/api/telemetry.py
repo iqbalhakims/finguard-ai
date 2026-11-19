@@ -32,27 +32,35 @@ def enabled() -> bool:
     return bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
 
 
-def setup(app: FastAPI) -> None:
-    """Configure the global tracer provider and instrument ``app`` (call before startup)."""
+def setup_provider(default_service: str) -> bool:
+    """Configure the global tracer provider from OTEL_* env vars; False if tracing is off."""
     if not enabled():
-        return
+        return False
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.sdk.resources import SERVICE_NAME, SERVICE_VERSION, Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     resource = Resource.create(
         {
-            SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", "finguard-api"),
+            SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", default_service),
             SERVICE_VERSION: __version__,
         }
     )
     provider = TracerProvider(resource=resource)  # sampler from OTEL_TRACES_SAMPLER(_ARG)
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(provider)
-    FastAPIInstrumentor.instrument_app(app, excluded_urls=EXCLUDED_URLS)
     logger.info("OpenTelemetry tracing enabled -> %s", os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+    return True
+
+
+def setup(app: FastAPI) -> None:
+    """Tracing for the API: provider + FastAPI server spans (call before startup)."""
+    if not setup_provider("finguard-api"):
+        return
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls=EXCLUDED_URLS)
 
 
 def current_trace_id() -> str | None:

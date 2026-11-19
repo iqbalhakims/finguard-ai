@@ -39,6 +39,24 @@ spec:
               value: {{ .Values.simulator.drift | quote }}
             - name: HOME
               value: /tmp
+            {{- if .Values.otel.enabled }}
+            # Plays the card-authorisation system: its CLIENT spans + the API's SERVER
+            # spans form the traffic-simulator -> finguard-api edge in the service graph.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_SERVICE_NAME
+              value: traffic-simulator
+            - name: OTEL_TRACES_SAMPLER
+              value: parentbased_traceidratio
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.otel.samplerRatio | quote }}
+            {{- with .Values.otel.resourceAttributes }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           resources:
             {{- toYaml .Values.simulator.resources | nindent 12 }}
           securityContext:

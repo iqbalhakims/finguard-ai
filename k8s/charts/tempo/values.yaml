@@ -7,6 +7,12 @@ image:
 retention: 72h
 storageSizeLimit: 2Gi
 
+# Service graph + span metrics, written into Prometheus (needs its remote-write
+# receiver enabled). Powers Grafana's "Service Graph" for the Tempo datasource.
+metricsGenerator:
+  enabled: true
+  remoteWriteUrl: http://kps-prometheus.monitoring.svc:9090/api/v1/write
+
 resources:
   requests:
     cpu: 50m

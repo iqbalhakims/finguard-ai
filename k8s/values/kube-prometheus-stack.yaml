@@ -30,6 +30,9 @@ prometheus:
     # Keep trace_id exemplars from the FinGuard API (latency histogram -> Tempo trace).
     enableFeatures:
       - exemplar-storage
+    # Tempo's metrics-generator writes service-graph and span metrics here
+    # (in-cluster only: the Prometheus Service is ClusterIP).
+    enableRemoteWriteReceiver: true
     retention: 15d
     retentionSize: 4GB
     resources:
@@ -87,6 +90,9 @@ grafana:
           enabled: true
         search:
           hide: false
+        # "Service Graph" tab: Tempo's metrics-generator writes traces_service_graph_* here.
+        serviceMap:
+          datasourceUid: prometheus
   sidecar:
     datasources:
       # Exemplar dots on Prometheus panels link to the trace in Tempo.

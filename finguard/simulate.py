@@ -25,9 +25,13 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+from opentelemetry import propagate, trace
 
+from finguard.api import telemetry
 from finguard.data.generate import BASELINE, DRIFTED, generate_transactions
 from finguard.data.process import process
+
+tracer = trace.get_tracer("finguard.simulate")
 
 PAYLOAD_FIELDS = [
     "transaction_id",
@@ -114,18 +118,27 @@ class Stats:
 
 def send(url: str, payload: dict, label: int, explain: bool, stats: Stats) -> None:
     endpoint = f"{url}/predict" + ("?explain=true" if explain else "")
-    req = urllib.request.Request(
-        endpoint,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            result = json.loads(r.read())
-    except (urllib.error.URLError, OSError, ValueError):
-        stats.add(sent=1, errors=1)
-        return
+    # The simulator plays the card-authorisation system: a CLIENT span per call, with
+    # its trace context (traceparent) passed on, so simulator -> API forms one trace
+    # and an edge in the Tempo service graph. No-op unless tracing is configured.
+    with tracer.start_as_current_span(
+        "card.authorise",
+        kind=trace.SpanKind.CLIENT,
+        attributes={"http.request.method": "POST", "url.full": endpoint, "server.address": url},
+    ) as span:
+        headers = {"Content-Type": "application/json"}
+        propagate.inject(headers)
+        req = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                span.set_attribute("http.response.status_code", r.status)
+                result = json.loads(r.read())
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            span.record_exception(exc)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, type(exc).__name__))
+            stats.add(sent=1, errors=1)
+            return
+        span.set_attribute("finguard.decision", result["decision"])
     flagged = result["is_fraud"]
     stats.add(
         sent=1,
@@ -147,6 +160,8 @@ def main() -> None:
     args = parser.parse_args()
 
     url = args.url.rstrip("/")
+    if telemetry.setup_provider("traffic-simulator"):
+        print("tracing card.authorise calls (OTLP)", flush=True)
     print(f"waiting for {url} ...", flush=True)
     wait_until_ready(url)
     print(f"streaming {'DRIFTED' if args.drift else 'baseline'} traffic at {args.rps} req/s", flush=True)
@@ -169,6 +184,7 @@ def main() -> None:
                 print(stats.line(), flush=True)
                 next_report = time.time() + 10
     print(stats.line(), flush=True)
+    getattr(trace.get_tracer_provider(), "shutdown", lambda: None)()  # flush spans on --count runs
 
 
 if __name__ == "__main__":

@@ -26,4 +26,25 @@ storage:
       path: /var/tempo/blocks
 usage_report:
   reporting_enabled: false
+{{- with .Values.metricsGenerator }}
+{{- if .enabled }}
+# Turns spans into Prometheus metrics: service graph edges (client -> server calls)
+# and per-span RED metrics, remote-written to Prometheus.
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: {{ .remoteWriteUrl }}
+        send_exemplars: true
+  traces_storage:
+    path: /var/tempo/generator/traces
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]
+{{- end }}
+{{- end }}
 {{- end }}

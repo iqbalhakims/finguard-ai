@@ -418,6 +418,14 @@ On DOKS:
 | `tempo` | Small [chart](k8s/charts/tempo/) running Tempo 2.10 as a single binary, 72 h retention, temporary storage (traces reset on rebuild) | `observability` |
 | Grafana | Tempo datasource; Prometheus exemplars link to it | `grafana.iqbalhakim.site` |
 
+**Service graph:** the traffic simulator plays the card-authorisation system. It
+creates a CLIENT span (`card.authorise`) for each call and passes `traceparent` on,
+so its calls and the API's work are one trace. Tempo's **metrics-generator** turns
+these spans into service-graph and per-span rate/error/duration metrics, written into
+Prometheus. Grafana shows them as the **Service graph** panel at the bottom of the
+FinGuard dashboard, and in **Explore → Tempo → Service Graph**:
+`traffic-simulator → finguard-api` with request rate, error % and latency.
+
 The API samples **10%** of requests (`otel.samplerRatio` in [doks.yaml](k8s/values/doks.yaml)).
 
 **Sending traces from outside the cluster:** `https://otel.iqbalhakim.site` is the
