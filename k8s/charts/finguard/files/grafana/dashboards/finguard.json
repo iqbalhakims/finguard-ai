@@ -16,7 +16,7 @@
     "to": "now"
   },
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "templating": {
     "list": []
   },
@@ -524,6 +524,477 @@
     },
     {
       "type": "row",
+      "title": "Availability & error budget  ·  SLO: 99.5% of /predict OK (no 5xx) in < 100 ms, 7 days",
+      "id": 28,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Availability (7 days)",
+      "id": 29,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of /predict requests that succeeded in under 100 ms over the last 7 days of running time.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - finguard:slo_bad_ratio:rate7d",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d03b3b",
+                "value": null
+              },
+              {
+                "color": "#0ca30c",
+                "value": 0.995
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Error budget remaining",
+      "id": 30,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of the 0.5% allowance still unused. Below 0% = SLO broken for this 7-day window.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(1 - finguard:slo_bad_ratio:rate7d / (1 - scalar(finguard:slo_objective)))",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d03b3b",
+                "value": null
+              },
+              {
+                "color": "#fab219",
+                "value": 0
+              },
+              {
+                "color": "#0ca30c",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Burn rate (1 h)",
+      "id": 31,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "How fast the budget is used: 1× lasts exactly 7 days; 8.4× pages (FinGuardErrorBudgetFastBurn).",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "finguard:slo_bad_ratio:rate1h / (1 - scalar(finguard:slo_objective))",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0ca30c",
+                "value": null
+              },
+              {
+                "color": "#fab219",
+                "value": 1
+              },
+              {
+                "color": "#d03b3b",
+                "value": 8.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "SLO target",
+      "id": 32,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Objective from the finguard:slo_objective recording rule (alerts.yml).",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "finguard:slo_objective",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Availability vs target",
+      "id": 33,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Rolling availability; the dashed line is the 99.5% target.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - finguard:slo_bad_ratio:rate1h",
+          "legendFormat": "last 1 h",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - finguard:slo_bad_ratio:rate1d",
+          "legendFormat": "last 1 day",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "finguard:slo_objective",
+          "legendFormat": "target",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0.98,
+            "axisSoftMax": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last 1 h"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last 1 day"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "target"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d03b3b"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error budget remaining",
+      "id": 34,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Drops when bad requests use up the allowance; recovers as old bad requests leave the 7-day window.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(1 - finguard:slo_bad_ratio:rate7d / (1 - scalar(finguard:slo_objective)))",
+          "legendFormat": "budget left (7-day window)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "budget left (7-day window)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "row",
       "title": "Service health",
       "id": 8,
       "collapsed": false,
@@ -532,7 +1003,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 16
       }
     },
     {
@@ -548,7 +1019,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 5
+        "y": 17
       },
       "targets": [
         {
@@ -654,7 +1125,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 5
+        "y": 17
       },
       "targets": [
         {
@@ -796,7 +1267,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 5
+        "y": 17
       },
       "targets": [
         {
@@ -899,7 +1370,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 25
       }
     },
     {
@@ -915,7 +1386,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 14
+        "y": 26
       },
       "targets": [
         {
@@ -1036,7 +1507,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 14
+        "y": 26
       },
       "targets": [
         {
@@ -1151,7 +1622,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 14
+        "y": 26
       },
       "targets": [
         {
@@ -1291,7 +1762,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 14
+        "y": 26
       },
       "targets": [
         {
@@ -1409,7 +1880,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 34
       }
     },
     {
@@ -1425,7 +1896,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 23
+        "y": 35
       },
       "targets": [
         {
@@ -1502,7 +1973,7 @@
         "h": 10,
         "w": 8,
         "x": 12,
-        "y": 23
+        "y": 35
       },
       "targets": [
         {
@@ -1573,7 +2044,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 23
+        "y": 35
       },
       "targets": [
         {
@@ -1643,7 +2114,7 @@
         "h": 3,
         "w": 4,
         "x": 20,
-        "y": 27
+        "y": 39
       },
       "targets": [
         {
@@ -1713,7 +2184,7 @@
         "h": 3,
         "w": 4,
         "x": 20,
-        "y": 30
+        "y": 42
       },
       "targets": [
         {
@@ -1772,7 +2243,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 45
       }
     },
     {
@@ -1788,7 +2259,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 46
       },
       "targets": [
         {
@@ -1995,7 +2466,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 46
       },
       "targets": [
         {
@@ -2051,7 +2522,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 42
+        "y": 54
       },
       "targets": [
         {
@@ -2088,7 +2559,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 42
+        "y": 54
       },
       "targets": [
         {

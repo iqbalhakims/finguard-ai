@@ -61,3 +61,78 @@ groups:
         annotations:
           summary: "Fraud-score distribution shifted (PSI {{ $value | printf \"%.2f\" }})"
           description: "The model's output distribution no longer matches validation. Thresholds may need recalibration."
+
+  # SLO: 99.5% of /predict requests succeed (no 5xx) in under 100 ms, over 7 days.
+  # bad = 5xx + slower than 100 ms (a slow 5xx counts twice: errs on the safe side).
+  # Request-based: hours when the cluster is switched off count neither good nor bad.
+  - name: finguard-slo
+    interval: 30s
+    rules:
+      - record: finguard:slo_objective
+        expr: vector(0.995)
+      - record: finguard:slo_bad_ratio:rate5m
+        expr: |
+          clamp_max((
+            (sum(rate(finguard_http_requests_total{route="/predict",status=~"5.."}[5m])) or vector(0))
+            + (sum(rate(finguard_http_request_duration_seconds_count{route="/predict"}[5m]))
+               - sum(rate(finguard_http_request_duration_seconds_bucket{route="/predict",le="0.1"}[5m])))
+          ) / sum(rate(finguard_http_requests_total{route="/predict"}[5m])), 1)
+      - record: finguard:slo_bad_ratio:rate30m
+        expr: |
+          clamp_max((
+            (sum(rate(finguard_http_requests_total{route="/predict",status=~"5.."}[30m])) or vector(0))
+            + (sum(rate(finguard_http_request_duration_seconds_count{route="/predict"}[30m]))
+               - sum(rate(finguard_http_request_duration_seconds_bucket{route="/predict",le="0.1"}[30m])))
+          ) / sum(rate(finguard_http_requests_total{route="/predict"}[30m])), 1)
+      - record: finguard:slo_bad_ratio:rate1h
+        expr: |
+          clamp_max((
+            (sum(rate(finguard_http_requests_total{route="/predict",status=~"5.."}[1h])) or vector(0))
+            + (sum(rate(finguard_http_request_duration_seconds_count{route="/predict"}[1h]))
+               - sum(rate(finguard_http_request_duration_seconds_bucket{route="/predict",le="0.1"}[1h])))
+          ) / sum(rate(finguard_http_requests_total{route="/predict"}[1h])), 1)
+      - record: finguard:slo_bad_ratio:rate6h
+        expr: |
+          clamp_max((
+            (sum(rate(finguard_http_requests_total{route="/predict",status=~"5.."}[6h])) or vector(0))
+            + (sum(rate(finguard_http_request_duration_seconds_count{route="/predict"}[6h]))
+               - sum(rate(finguard_http_request_duration_seconds_bucket{route="/predict",le="0.1"}[6h])))
+          ) / sum(rate(finguard_http_requests_total{route="/predict"}[6h])), 1)
+      - record: finguard:slo_bad_ratio:rate1d
+        expr: |
+          clamp_max((
+            (sum(rate(finguard_http_requests_total{route="/predict",status=~"5.."}[1d])) or vector(0))
+            + (sum(rate(finguard_http_request_duration_seconds_count{route="/predict"}[1d]))
+               - sum(rate(finguard_http_request_duration_seconds_bucket{route="/predict",le="0.1"}[1d])))
+          ) / sum(rate(finguard_http_requests_total{route="/predict"}[1d])), 1)
+      - record: finguard:slo_bad_ratio:rate7d
+        expr: |
+          clamp_max((
+            (sum(rate(finguard_http_requests_total{route="/predict",status=~"5.."}[7d])) or vector(0))
+            + (sum(rate(finguard_http_request_duration_seconds_count{route="/predict"}[7d]))
+               - sum(rate(finguard_http_request_duration_seconds_bucket{route="/predict",le="0.1"}[7d])))
+          ) / sum(rate(finguard_http_requests_total{route="/predict"}[7d])), 1)
+
+      # Multi-window burn-rate alerts, sized for the 7-day window
+      # (burn 1x = budget lasts exactly 7 days).
+      - alert: FinGuardErrorBudgetFastBurn
+        expr: |
+          finguard:slo_bad_ratio:rate1h > 8.4 * (1 - scalar(finguard:slo_objective))
+          and finguard:slo_bad_ratio:rate5m > 8.4 * (1 - scalar(finguard:slo_objective))
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FinGuard error budget burning fast (5% of the 7-day budget per hour)"
+          description: "{{ $value | humanizePercentage }} of /predict requests failed or exceeded 100 ms over the last hour (SLO 99.5%)."
+
+      - alert: FinGuardErrorBudgetSlowBurn
+        expr: |
+          finguard:slo_bad_ratio:rate6h > 2.8 * (1 - scalar(finguard:slo_objective))
+          and finguard:slo_bad_ratio:rate30m > 2.8 * (1 - scalar(finguard:slo_objective))
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FinGuard error budget burning steadily (10% of the 7-day budget per 6 hours)"
+          description: "{{ $value | humanizePercentage }} of /predict requests failed or exceeded 100 ms over the last 6 hours (SLO 99.5%)."
