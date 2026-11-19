@@ -1,4 +1,4 @@
-# Public Grafana and Argo CD on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
+# Public Grafana, Argo CD, OTLP ingest and Hubble UI on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
 # installed in the "monitoring" namespace next to kube-prometheus-stack's Grafana.
 gatewayClassName: cilium
 loadBalancerAnnotations:
@@ -24,6 +24,13 @@ extraRoutes:
     service: otel-collector
     namespace: observability
     port: 4319
+  # Hubble UI (Cilium network flows; DOKS runs it in kube-system). It has no login, so the
+  # route goes to a basic-auth proxy in this namespace (k8s/charts/hubble-auth), never to
+  # hubble-ui directly. Login: admin / k8s/.secrets/hubble-ui-password.
+  - name: hubble
+    host: hubble.iqbalhakim.site
+    service: hubble-auth
+    port: 80
 
 # external-dns keeps the Cloudflare record on the current Gateway IP (k8s/argocd/apps/external-dns.yaml)
 dnsTtl: 60

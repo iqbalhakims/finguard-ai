@@ -1,0 +1,90 @@
+{{- $labels := dict "app.kubernetes.io/name" "hubble-auth" "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/managed-by" .Release.Service "helm.sh/chart" (printf "%s-%s" .Chart.Name .Chart.Version) -}}
+{{- $selector := dict "app.kubernetes.io/name" "hubble-auth" -}}
+{{- $config := include "hubble-auth.nginxConf" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-auth
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+data:
+  nginx.conf: |
+    {{- $config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hubble-auth
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- toYaml $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101          # nginx user of the nginx-unprivileged image
+        runAsGroup: 101
+        fsGroup: 101            # lets that user read the htpasswd file (mode 0440)
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          command: ["nginx", "-c", "/etc/nginx-proxy/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: config, mountPath: /etc/nginx-proxy, readOnly: true }
+            - { name: htpasswd, mountPath: /etc/hubble-auth, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: hubble-auth
+        - name: htpasswd
+          secret:
+            secretName: {{ .Values.authSecret }}
+            defaultMode: 0440
+            items:
+              - { key: htpasswd, path: htpasswd }
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hubble-auth
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  selector:
+    {{- toYaml $selector | nindent 4 }}
+  ports:
+    - { name: http, port: 80, targetPort: http }

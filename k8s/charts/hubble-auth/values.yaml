@@ -1,0 +1,18 @@
+image:
+  repository: nginxinc/nginx-unprivileged
+  tag: "1.30.6-alpine"   # nginx stable
+
+# Hubble UI as DOKS deploys it (Cilium's hubble-ui Service, plain HTTP, no login).
+upstream: http://hubble-ui.kube-system.svc.cluster.local:80
+
+# Secret holding an htpasswd file under the key "htpasswd" (user admin, bcrypt).
+# SealedSecret k8s/secrets/hubble-ui-auth.yaml, created by `make doks-seal-hubble`;
+# the plain password stays in k8s/.secrets/hubble-ui-password (gitignored).
+authSecret: hubble-ui-auth
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    memory: 64Mi

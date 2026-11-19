@@ -16,7 +16,7 @@ API_PORT         ?= 8000
 .PHONY: help setup data train drift-data drift-report test serve simulate simulate-drift mlflow-ui \
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete helm-lint \
-        argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-volume doks-set-host doks-public-ip \
+        argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-seal-hubble doks-volume doks-set-host doks-public-ip \
         doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel trace-demo doks-backup doks-restore doks-up doks-down
 
 help: ## Show this help
@@ -122,6 +122,8 @@ helm-lint: ## Lint and render the charts with every values file
 	helm template public-gateway k8s/charts/public-gateway -n monitoring -f k8s/values/public-gateway.yaml --set host=ci.example.com > /dev/null
 	helm lint k8s/charts/tempo
 	helm template tempo k8s/charts/tempo -n observability > /dev/null
+	helm lint k8s/charts/hubble-auth
+	helm template hubble-auth k8s/charts/hubble-auth -n monitoring > /dev/null
 
 # ----------------------------------------------------------------------------- DOKS via GitOps (Argo CD + Helm)
 # After bootstrap, deploying = edit k8s/ (chart or values/doks.yaml), commit, push.
@@ -166,6 +168,18 @@ doks-seal-grafana: ## Seal a random Grafana admin login into k8s/secrets/grafana
 	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/grafana-admin.yaml.tmp; \
 	test -s $(SECRETS_DIR)/grafana-admin.yaml.tmp && mv $(SECRETS_DIR)/grafana-admin.yaml.tmp $(SECRETS_DIR)/grafana-admin.yaml \
 	  && echo "wrote $(SECRETS_DIR)/grafana-admin.yaml (commit it). Login: admin / $(BACKUP_DIR)/grafana-admin-password"
+
+doks-seal-hubble: ## Seal a random Hubble UI login (basic auth) for https://hubble.iqbalhakim.site (needs kubeseal)
+	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
+	@mkdir -p $(BACKUP_DIR); test -f $(BACKUP_DIR)/hubble-ui-password || { \
+	  umask 077; openssl rand -base64 24 | tr -d '/+=\n' > $(BACKUP_DIR)/hubble-ui-password; }
+	@# bcrypt via stdin (never argv); grep drops the blank line htpasswd -n prints after the entry.
+	@htpasswd -niBC 10 admin < $(BACKUP_DIR)/hubble-ui-password | grep . \
+	  | $(DOKS_KUBECTL) create secret generic hubble-ui-auth -n monitoring --dry-run=client -o yaml \
+	    --from-file=htpasswd=/dev/stdin \
+	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/hubble-ui-auth.yaml.tmp; \
+	test -s $(SECRETS_DIR)/hubble-ui-auth.yaml.tmp && mv $(SECRETS_DIR)/hubble-ui-auth.yaml.tmp $(SECRETS_DIR)/hubble-ui-auth.yaml \
+	  && echo "wrote $(SECRETS_DIR)/hubble-ui-auth.yaml (commit it). Login: admin / $(BACKUP_DIR)/hubble-ui-password"
 
 doks-seal-cloudflare: ## Seal your Cloudflare API token for external-dns (prompts; input is hidden)
 	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
@@ -213,7 +227,7 @@ doks-up: ## After HCP created the cluster (cluster_enabled=true): kubeconfig, re
 	doctl kubernetes cluster kubeconfig save $(DOKS_CLUSTER) --set-current-context=false
 	$(MAKE) doks-restore
 	$(MAKE) argocd-bootstrap
-	@echo "Argo CD is syncing (make argocd-status). external-dns points grafana./argo.iqbalhakim.site at the new IP in ~2 min."
+	@echo "Argo CD is syncing (make argocd-status). external-dns points grafana./argo./otel./hubble.iqbalhakim.site at the new IP in ~2 min."
 
 doks-volume: ## Put the Terraform-created Prometheus volume ID into k8s/values/kube-prometheus-stack.yaml
 	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-prometheus"{print $$1}'); \

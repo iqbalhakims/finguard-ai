@@ -197,6 +197,7 @@ k8s/
                           (local) or ServiceMonitor + PrometheusRule + dashboard ConfigMap
                           for kube-prometheus-stack (DOKS)
   charts/public-gateway/  Helm chart: Gateway API entry point + Let's Encrypt certificate
+  charts/hubble-auth/     Helm chart: password (basic auth) proxy in front of DOKS's Hubble UI
   values/                 doks.yaml, kube-prometheus-stack.yaml, public-gateway.yaml, minikube.yaml
   argocd/                 root.yaml (app of apps) + apps/: cert-manager, sealed-secrets,
                           kube-prometheus-stack, finguard, public-gateway
@@ -281,18 +282,21 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 |---|---|---|
 | `cert-manager` | Official chart v1.21.3, Gateway API support on | `cert-manager` |
 | `sealed-secrets` | Official chart 2.22.0 (controller 0.41.2) | `kube-system` |
-| `external-dns` | Official chart 1.23.0: keeps `grafana.iqbalhakim.site` and `argo.iqbalhakim.site` in **Cloudflare** pointed at the current Gateway IP. Only HTTPRoute hosts under `iqbalhakim.site`, **upsert-only** (never deletes), TXT ownership records (only touches records it created), DNS only (not proxied), TTL 60s | `external-dns` |
+| `external-dns` | Official chart 1.23.0: keeps the public hosts (`grafana`, `argo`, `otel`, `hubble` `.iqbalhakim.site`) in **Cloudflare** pointed at the current Gateway IP. Only HTTPRoute hosts under `iqbalhakim.site`, **upsert-only** (never deletes), TXT ownership records (only touches records it created), DNS only (not proxied), TTL 60s | `external-dns` |
 | `kube-prometheus-stack` | Official chart 92.17.0 with [values](k8s/values/kube-prometheus-stack.yaml): Prometheus on the **Terraform volume** (15 days, max 4 GB), Grafana (login required), Alertmanager, kube-state-metrics, node-exporter. Picks up ServiceMonitors, rules and dashboards from every namespace | `monitoring` |
 | `finguard` | [This chart](k8s/charts/finguard/) with [doks.yaml](k8s/values/doks.yaml): registry image `sha-<commit>`, 2 API replicas, simulator, ServiceMonitor, PrometheusRule, dashboard | `finguard` |
-| `public-gateway` | [Gateway chart](k8s/charts/public-gateway/): **Cilium Gateway API** (built into DOKS) → Grafana and the Argo CD UI (one load balancer, one certificate), HTTP→HTTPS redirect, HSTS, **Let's Encrypt** via cert-manager HTTP-01 | `monitoring` |
+| `public-gateway` | [Gateway chart](k8s/charts/public-gateway/): **Cilium Gateway API** (built into DOKS) → Grafana, the Argo CD UI, OTLP ingest and the Hubble UI (one load balancer, one certificate), HTTP→HTTPS redirect, HSTS, **Let's Encrypt** via cert-manager HTTP-01 | `monitoring` |
 | `secrets` | The SealedSecrets in [k8s/secrets/](k8s/secrets/): Grafana login, Cloudflare token | per file |
 | `otel-collector` | Official chart 0.178.2: OTLP traces in (in-cluster without a token, `otel.iqbalhakim.site` with a bearer token) → Tempo | `observability` |
 | `tempo` | [Tempo chart](k8s/charts/tempo/): trace storage (72 h), Grafana datasource | `observability` |
+| `hubble-auth` | [Hubble auth chart](k8s/charts/hubble-auth/): nginx with **basic auth** in front of the Hubble UI that DOKS runs in `kube-system` (Hubble UI has no login of its own) | `monitoring` |
 
 Public: Grafana at `https://grafana.iqbalhakim.site` and the Argo CD UI at
 `https://argo.iqbalhakim.site` (login `admin`, password in
 `k8s/.secrets/argocd-admin-password`, set by `make argocd-bootstrap` and kept across
-rebuilds). More hosts go under `extraRoutes` in
+rebuilds). The Hubble UI (Cilium network flows) is at `https://hubble.iqbalhakim.site`
+(login `admin`, password in `k8s/.secrets/hubble-ui-password`, sealed by
+`make doks-seal-hubble`). More hosts go under `extraRoutes` in
 [k8s/values/public-gateway.yaml](k8s/values/public-gateway.yaml). The API and
 Prometheus stay internal (ClusterIP).
 
@@ -303,6 +307,7 @@ brew install kubeseal
 make doks-up                     # kubeconfig + Argo CD (first time: nothing to restore yet)
 make doks-seal-grafana           # random Grafana login  -> k8s/secrets/grafana-admin.yaml
 make doks-seal-cloudflare        # Cloudflare API token  -> k8s/secrets/cloudflare-api-token.yaml
+make doks-seal-hubble            # random Hubble UI login -> k8s/secrets/hubble-ui-auth.yaml
 git add k8s/secrets && git commit -m "add sealed secrets" && git push
 ```
 

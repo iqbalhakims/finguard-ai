@@ -1,0 +1,9 @@
+apiVersion: v2
+name: hubble-auth
+description: >-
+  Password (HTTP basic auth) in front of the Hubble UI that DOKS runs in kube-system.
+  Hubble UI has no login of its own, so the public Gateway routes
+  https://hubble.iqbalhakim.site to this nginx proxy instead of to the UI directly.
+type: application
+version: 0.1.0
+appVersion: "1.30.6"
