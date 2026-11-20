@@ -25,7 +25,7 @@ variable "kubernetes_version_prefix" {
 variable "node_size" {
   description = "Droplet size for the worker nodes. sgp1 capacity changes day to day: on a 422 \"insufficient capacity\", pick another 8 GB size from `doctl compute size list` (the -amd/-intel variants are the same spec)."
   type        = string
-  default     = "s-4vcpu-8gb" # 8 GB for Argo CD + kube-prometheus-stack + OTel; sgp1 had no s-4vcpu-8gb-amd (2026-11-19) or g-2vcpu-8gb (2026-11-20) capacity
+  default     = "s-2vcpu-8gb-amd" # 8 GB for Argo CD + kube-prometheus-stack + OTel, $42/mo; sgp1 had no capacity for s-4vcpu-8gb-amd (2026-11-19), g-2vcpu-8gb or s-4vcpu-8gb (2026-11-20)
 }
 
 variable "node_count" {
