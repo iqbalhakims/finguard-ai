@@ -1,0 +1,27 @@
+# HTTP 403: an L7 policy lets only GET into finguard-api, so every POST /predict is rejected
+#
+# Hubble UI: L7 flows with method, path and status. GET /metrics and /health/* get 200;
+#   every POST gets "HTTP/1.1 403 0ms (POST http://finguard-api/predict)": 0 ms because
+#   Cilium's Envoy answers "Access denied" itself and the request never reaches the app.
+#   The TCP connection is allowed: this fails one level up from drop-simulator.
+# Elsewhere: simulator errors (HTTP 403), predictions per second drop to 0 in Grafana.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: chaos-http-403
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: http-403
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: finguard-api
+  ingress:
+    - fromEntities: ["all"]
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+          rules:
+            http:
+              - method: GET

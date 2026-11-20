@@ -1,0 +1,25 @@
+# Telemetry cut: finguard-api and the simulator can no longer reach the OpenTelemetry Collector
+#
+# Hubble UI: DROPPED flows from finguard -> observability/otel-collector on TCP :4318,
+#   while simulator -> finguard-api keeps flowing: the app works, only tracing is broken.
+# Elsewhere: no new traces in Tempo, the service graph goes stale; predictions are unaffected.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: chaos-cut-traces
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: cut-traces
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [finguard-api, traffic-simulator]
+  egress:
+    - toEntities: ["all"]
+  egressDeny:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: opentelemetry-collector

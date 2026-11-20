@@ -17,7 +17,8 @@ API_PORT         ?= 8000
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete helm-lint \
         argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-seal-hubble doks-volume doks-set-host doks-public-ip \
-        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel trace-demo doks-backup doks-restore doks-up doks-down
+        doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel trace-demo doks-backup doks-restore doks-up doks-down \
+        chaos-list chaos chaos-off chaos-status
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -258,3 +259,25 @@ doks-forward: ## Port-forward on DOKS: API :8080, Grafana :3300, Prometheus :909
 	$(DOKS_KUBECTL) -n monitoring port-forward svc/grafana 3300:80 & \
 	$(DOKS_KUBECTL) -n monitoring port-forward svc/kps-prometheus 9095:9090 & \
 	wait
+
+# ----------------------------------------------------------------------------- Failure scenarios (watch in Hubble)
+# Cilium policies + a client pod from k8s/chaos/, applied with kubectl (not Argo CD, which
+# leaves objects it does not track alone). One scenario at a time; all carry CHAOS_LABEL.
+CHAOS_DIR   := k8s/chaos
+CHAOS_LABEL := chaos.finguard.io/scenario
+
+chaos-list: ## List the failure scenarios in k8s/chaos/
+	@for f in $(CHAOS_DIR)/*.yaml; do printf '  \033[36m%-15s\033[0m %s\n' "$$(basename $$f .yaml)" "$$(sed -n '1s/^# //p' $$f)"; done
+	@echo "  start: make chaos S=<name>   stop: make chaos-off   watch: https://hubble.iqbalhakim.site"
+
+chaos: ## Start one failure scenario (stops any other): make chaos S=drop-simulator
+	@test -n "$(S)" -a -f "$(CHAOS_DIR)/$(S).yaml" || { echo "usage: make chaos S=<name>"; $(MAKE) -s chaos-list; exit 1; }
+	@$(MAKE) -s chaos-off
+	$(DOKS_KUBECTL) apply -f $(CHAOS_DIR)/$(S).yaml
+	@echo "Running: $(S). Watch https://hubble.iqbalhakim.site (namespace finguard); stop with: make chaos-off"
+
+chaos-off: ## Stop every failure scenario
+	$(DOKS_KUBECTL) delete ciliumnetworkpolicies,deployments -A -l $(CHAOS_LABEL) --ignore-not-found
+
+chaos-status: ## Which failure scenario is running
+	@$(DOKS_KUBECTL) get ciliumnetworkpolicies,deployments -A -l $(CHAOS_LABEL) 2>&1 | grep -v '^No resources' || echo "no scenario running"

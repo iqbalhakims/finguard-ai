@@ -1,0 +1,25 @@
+# Packet drop: finguard-api refuses everything from the traffic simulator (L3/L4 deny policy)
+#
+# Hubble UI (namespace finguard): red edge traffic-simulator -> finguard-api, flows
+#   "DROPPED  Policy denied" on TCP :8000. Prometheus scrapes and kubelet probes still pass.
+# Elsewhere: simulator requests time out (10 s each), the request rate in Grafana falls,
+#   traffic-simulator spans in Tempo turn into errors.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: chaos-drop-simulator
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: drop-simulator
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: finguard-api
+  # A policy puts the endpoint into default deny, so allow everything first...
+  ingress:
+    - fromEntities: ["all"]
+  # ...then deny the one client. Deny always wins over allow.
+  ingressDeny:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: traffic-simulator

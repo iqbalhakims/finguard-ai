@@ -1,0 +1,80 @@
+# Typo in a service name: a client pod calls "finguard-apii" and every DNS lookup is NXDOMAIN
+#
+# Hubble UI: a new chaos-client node; DNS flows to coredns such as
+#   "DNS Query finguard-apii.finguard.svc.cluster.local. A" and
+#   "DNS Answer RCode: Non-Existent Domain", once per search domain, every 3 s.
+#   (The DNS policy below is what makes Hubble decode DNS; it allows every query.)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: chaos-nxdomain
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: nxdomain
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-client
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: finguard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-client
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: nxdomain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-client
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chaos-client
+        chaos.finguard.io/scenario: nxdomain
+    spec:
+      automountServiceAccountToken: false
+      securityContext:            # namespace finguard enforces Pod Security "restricted"
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: client
+          image: busybox:1.37.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              while true; do
+                wget -q -T 3 -O /dev/null http://finguard-apii/health/live \
+                  || echo "$(date -Iseconds) finguard-apii: lookup failed"
+                sleep 3
+              done
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

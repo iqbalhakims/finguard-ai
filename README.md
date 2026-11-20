@@ -446,6 +446,33 @@ export OTEL_SERVICE_NAME=my-app     # any OTLP/HTTP SDK or collector picks these
 In-cluster apps send to `http://otel-collector.observability.svc:4318` without a token;
 that port isn't exposed publicly.
 
+### Failure scenarios (Hubble + the Outage dashboard)
+
+When requests never reach the API, its own metrics stay green: error rate 0%, SLO
+untouched, traffic just disappears. [k8s/chaos/](k8s/chaos/) holds switchable failures
+(Cilium network policies, one client pod) to see this in **Hubble UI**
+(`https://hubble.iqbalhakim.site`, namespace `finguard`) and in Grafana's
+**FinGuard AI — Outage** dashboard, which puts the network (Hubble metrics), client
+(simulator traces) and server (API metrics) views side by side.
+
+```bash
+make chaos-list                  # what's available
+make chaos S=drop-simulator      # start one (replaces any running scenario)
+make chaos-off                   # stop
+```
+
+| Scenario | What breaks | Hubble UI shows |
+|---|---|---|
+| `l7-visibility` | nothing (baseline) | each request: `POST /predict → 200 (40ms)` |
+| `drop-simulator` | simulator → API packets dropped | red edge, `Policy denied … DROPPED (TCP SYN)` |
+| `http-403` | L7 policy allows only GET | `403 0ms (POST /predict)`: Envoy answers, the app never sees it |
+| `dns-outage` | simulator can't reach CoreDNS | `→ coredns:53 DROPPED (UDP)`* |
+| `cut-traces` | app + simulator can't reach the OTel Collector | drops to `observability/otel-collector`; predictions keep working |
+| `nxdomain` | a client calls `finguard-apii` | DNS `Non-Existent Domain` answers* |
+
+\* Hubble UI hides kube-dns traffic by default: untick **Visual → Hide kube-dns:53 pod**.
+Scenarios are applied with kubectl, not Argo CD, so self-heal leaves them alone.
+
 ## 10 · Drift detection
 
 - **PSI per monitored feature** against a reference profile saved in the model bundle at training time. Numeric features use quantile bins (zero-inflated counts keep their own bin); categorical features use category shares.
@@ -483,7 +510,7 @@ finguard/
   model.py             serving bundle (model + thresholds + drift profile)
   simulate.py          traffic generator with live precision/recall
   api/                 FastAPI app, schemas, Prometheus metrics, drift monitor
-k8s/                   Helm charts (finguard, public-gateway), values per environment, Argo CD apps, sealed secrets
+k8s/                   Helm charts (finguard, public-gateway, tempo, hubble-auth), values per environment, Argo CD apps, sealed secrets, chaos/ failure scenarios
 compose/               docker-compose Prometheus config (alerts + Grafana files come from the chart)
 tests/                 processing leakage, features, drift, evaluation, API, SHAP additivity
 scripts/               CI model quality gate, DOKS key/certificate backup and restore

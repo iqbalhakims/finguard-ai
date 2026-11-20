@@ -1,0 +1,25 @@
+# Baseline, nothing breaks: HTTP-level visibility into finguard-api (method, path, status, latency)
+#
+# Hubble UI: every request to finguard-api shows as an L7 flow, e.g.
+#   "POST http://finguard-api/predict => 200 (12ms)". Start here to see healthy traffic,
+#   then compare with http-403. Hubble only sees HTTP for pods selected by an L7 policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: chaos-l7-visibility
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: l7-visibility
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: finguard-api
+  ingress:
+    - fromEntities: ["all"]
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+          rules:
+            http:
+              - {}   # allow any request; the rule only exists so Envoy parses HTTP
