@@ -21,6 +21,19 @@ defaultRules:
     kubeProxy: false
 
 prometheus:
+  # Hubble (Cilium's flow observability, run by DOKS) exposes network metrics on every
+  # node: drops by reason, HTTP/DNS seen by Cilium, TCP flags. Used by the
+  # "FinGuard AI — Outage" dashboard (k8s/charts/finguard/files/grafana/dashboards/outage.json).
+  additionalServiceMonitors:
+    - name: hubble
+      namespaceSelector:
+        matchNames: [kube-system]
+      selector:
+        matchLabels:
+          k8s-app: hubble              # only the DOKS-managed hubble-metrics Service
+      endpoints:
+        - port: hubble-metrics         # :9965 on each node
+          interval: 30s
   prometheusSpec:
     # Select ServiceMonitors / PodMonitors / PrometheusRules from every namespace,
     # without requiring a `release: ...` label.

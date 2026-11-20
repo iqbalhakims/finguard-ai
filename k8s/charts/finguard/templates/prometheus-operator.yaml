@@ -54,4 +54,7 @@ metadata:
 data:
   finguard.json: |
     {{- .Files.Get "files/grafana/dashboards/finguard.json" | nindent 4 }}
+  # Failures the API cannot see (needs Hubble metrics: k8s/values/kube-prometheus-stack.yaml).
+  outage.json: |
+    {{- .Files.Get "files/grafana/dashboards/outage.json" | nindent 4 }}
 {{- end }}
