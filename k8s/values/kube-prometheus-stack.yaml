@@ -143,7 +143,10 @@ grafana:
       basicAuth: true
       basicAuthUser: grafana
       jsonData:
-        database: "wazuh-alerts-*"
+        # Wazuh writes one index per UTC day. A dated pattern (not "wazuh-alerts-*") lets
+        # the plugin's "Test" find a real index name; days with no index are skipped.
+        database: "[wazuh-alerts-4.x-]YYYY.MM.DD"
+        interval: Daily
         timeField: timestamp
         flavor: opensearch
         version: "2.19.6"              # wazuh-indexer 4.14 (it reports 7.10.2 for compatibility)

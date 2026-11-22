@@ -66,7 +66,8 @@ cert filebeat filebeat
 
 # --- indexer users: admin, kibanaserver, grafana (upstream's demo users are left out) -------
 # grafana: backend role "readall" = the built-in readall role through the image's default
-# roles_mapping.yml (read any index; no writes, no security config).
+# roles_mapping.yml (read any index; no writes, no security config), plus the built-in
+# ppl_full_access (read-only: index mappings for Grafana's field lists, search, PPL).
 hash() { htpasswd -niBC 12 x < "$1" | tr -d '\n' | cut -d: -f2; }
 cat > "$DIR/internal_users.yml" <<EOF
 ---
@@ -88,6 +89,8 @@ grafana:
   reserved: true
   backend_roles:
   - "readall"
+  opendistro_security_roles:
+  - "ppl_full_access"
   description: "Grafana SOC dashboard, read-only"
 EOF
 

@@ -1328,7 +1328,20 @@
           ],
           "fields": ""
         }
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "rule.id": 0,
+              "rule.description": 1,
+              "rule.level": 2,
+              "Count": 3
+            }
+          }
+        }
+      ]
     },
     {
       "id": 16,
