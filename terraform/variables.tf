@@ -29,9 +29,9 @@ variable "node_size" {
 }
 
 variable "node_count" {
-  description = "Number of worker nodes."
+  description = "Number of worker nodes. Changes in place (no cluster rebuild)."
   type        = number
-  default     = 1
+  default     = 2 # 2nd node for Wazuh (indexer + manager + dashboard need ~1.8 vCPU / 3 GiB)
 }
 
 variable "prometheus_volume_size_gb" {
