@@ -1,0 +1,119 @@
+{{- $name := "wazuh-manager" -}}
+{{- $sel := dict "app.kubernetes.io/name" $name -}}
+{{- $config := .Files.Get "files/manager-ossec.conf" -}}
+# Wazuh manager: one node (cluster mode off), so the master also takes agent events on 1514.
+# Its state lives in the container filesystem: gone after a restart, like the indexer's.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+data:
+  ossec.conf: |
+    {{- $config | nindent 4 }}
+---
+# API (dashboard -> manager), agent enrollment and agent events. In-cluster only.
+# The name "wazuh" matches the upstream manifests and the dashboard's default API host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  selector:
+    {{- toYaml $sel | nindent 4 }}
+  ports:
+    - { name: api, port: 55000, targetPort: api }
+    - { name: registration, port: 1515, targetPort: registration }
+    - { name: events, port: 1514, targetPort: events }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- toYaml $sel | nindent 4 }}
+  ports:
+    - { name: api, port: 55000, targetPort: api }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- toYaml $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 8 }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+      containers:
+        - name: manager
+          image: wazuh/wazuh-manager:{{ .Values.version }}
+          env:
+            - name: INDEXER_URL
+              value: https://indexer:9200
+            - name: INDEXER_USERNAME
+              value: admin
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "INDEXER_PASSWORD" "key" "indexer-admin-password") | nindent 12 }}
+            - name: FILEBEAT_SSL_VERIFICATION_MODE
+              value: full
+            - name: SSL_CERTIFICATE_AUTHORITIES
+              value: /etc/ssl/root-ca.pem
+            - name: SSL_CERTIFICATE
+              value: /etc/ssl/filebeat.pem
+            - name: SSL_KEY
+              value: /etc/ssl/filebeat.key
+            - name: API_USERNAME
+              value: wazuh-wui
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "API_PASSWORD" "key" "api-password") | nindent 12 }}
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "WAZUH_CLUSTER_KEY" "key" "cluster-key") | nindent 12 }}
+          ports:
+            - { name: events, containerPort: 1514 }
+            - { name: registration, containerPort: 1515 }
+            - { name: api, containerPort: 55000 }
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.manager.resources | nindent 12 }}
+          securityContext:
+            capabilities:
+              add: ["SYS_CHROOT"]
+          volumeMounts:
+            - { name: config, mountPath: /wazuh-config-mount/etc/ossec.conf, subPath: ossec.conf, readOnly: true }
+            - { name: authd, mountPath: /wazuh-config-mount/etc/authd.pass, subPath: authd.pass, readOnly: true }
+            - { name: certs, mountPath: /etc/ssl/root-ca.pem, subPath: root-ca.pem, readOnly: true }
+            - { name: certs, mountPath: /etc/ssl/filebeat.pem, subPath: filebeat.pem, readOnly: true }
+            - { name: certs, mountPath: /etc/ssl/filebeat.key, subPath: filebeat-key.pem, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: authd
+          secret:
+            secretName: {{ .Values.secrets.credentials }}
+            items:
+              - { key: authd.pass, path: authd.pass }
+        - name: certs
+          secret:
+            secretName: {{ .Values.secrets.certs }}

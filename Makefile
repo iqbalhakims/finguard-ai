@@ -16,7 +16,7 @@ API_PORT         ?= 8000
 .PHONY: help setup data train drift-data drift-report test serve simulate simulate-drift mlflow-ui \
         pipeline docker-build up down compose-drift compose-baseline \
         minikube-start k8s-load k8s-deploy k8s-status k8s-forward k8s-drift k8s-baseline k8s-delete helm-lint \
-        argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-seal-hubble doks-volume doks-set-host doks-public-ip \
+        argocd-bootstrap argocd-status argocd-ui doks-seal-grafana doks-seal-hubble doks-seal-wazuh doks-volume doks-set-host doks-public-ip \
         doks-cert-status doks-status doks-forward doks-seal-cloudflare doks-seal-otel trace-demo doks-backup doks-restore doks-up doks-down \
         chaos-list chaos chaos-off chaos-status
 
@@ -128,6 +128,8 @@ helm-lint: ## Lint and render the charts with every values file
 	helm template loki k8s/charts/loki -n observability -f k8s/values/loki.yaml > /dev/null
 	helm lint k8s/charts/hubble-auth
 	helm template hubble-auth k8s/charts/hubble-auth -n monitoring > /dev/null
+	helm lint k8s/charts/wazuh
+	helm template wazuh k8s/charts/wazuh -n wazuh > /dev/null
 
 # ----------------------------------------------------------------------------- DOKS via GitOps (Argo CD + Helm)
 # After bootstrap, deploying = edit k8s/ (chart or values/doks.yaml), commit, push.
@@ -173,6 +175,9 @@ doks-seal-grafana: ## Seal a random Grafana admin login into k8s/secrets/grafana
 	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/grafana-admin.yaml.tmp; \
 	test -s $(SECRETS_DIR)/grafana-admin.yaml.tmp && mv $(SECRETS_DIR)/grafana-admin.yaml.tmp $(SECRETS_DIR)/grafana-admin.yaml \
 	  && echo "wrote $(SECRETS_DIR)/grafana-admin.yaml (commit it). Login: admin / $(BACKUP_DIR)/grafana-admin-password"
+
+doks-seal-wazuh: ## Wazuh TLS certs + passwords -> k8s/secrets/wazuh-*.yaml (plain copies: k8s/.secrets/wazuh/, reused)
+	@bash scripts/wazuh_secrets.sh $(DOKS_CONTEXT)
 
 doks-seal-hubble: ## Seal a random Hubble UI login (basic auth) for https://hubble.iqbalhakim.site (needs kubeseal)
 	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }

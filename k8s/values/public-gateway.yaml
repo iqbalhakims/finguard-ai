@@ -1,4 +1,4 @@
-# Public Grafana, Argo CD, OTLP ingest and Hubble UI on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
+# Public Grafana, Argo CD, OTLP ingest, Hubble UI and Wazuh on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
 # installed in the "monitoring" namespace next to kube-prometheus-stack's Grafana.
 gatewayClassName: cilium
 loadBalancerAnnotations:
@@ -31,6 +31,13 @@ extraRoutes:
     host: hubble.iqbalhakim.site
     service: hubble-auth
     port: 80
+  # Wazuh dashboard (SIEM, k8s/charts/wazuh), plain HTTP behind the Gateway. Has its own
+  # login: admin / k8s/.secrets/wazuh/indexer-admin-password.
+  - name: wazuh
+    host: wazuh.iqbalhakim.site
+    service: wazuh-dashboard
+    namespace: wazuh
+    port: 5601
 
 # external-dns keeps the Cloudflare record on the current Gateway IP (k8s/argocd/apps/external-dns.yaml)
 dnsTtl: 60

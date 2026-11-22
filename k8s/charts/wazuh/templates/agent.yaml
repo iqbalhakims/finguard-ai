@@ -1,0 +1,66 @@
+{{- if .Values.agent.enabled }}
+{{- $name := "wazuh-agent" -}}
+{{- $sel := dict "app.kubernetes.io/name" $name -}}
+{{- $config := include "wazuh.agentConfig" . -}}
+# Wazuh agent on every node. The node's root filesystem is mounted read-only at /host;
+# hostPID/hostNetwork make processes and ports the node's own. The agent name is the
+# node name. CHANGE_* placeholders are filled in by the image's entrypoint from the env.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+data:
+  ossec.conf: |
+    {{- $config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- toYaml $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 8 }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: agent
+          image: wazuh/wazuh-agent:{{ .Values.version }}
+          env:
+            - name: WAZUH_MANAGER_SERVER
+              value: wazuh.{{ .Release.Namespace }}.svc.cluster.local
+            - name: WAZUH_AGENT_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "WAZUH_REGISTRATION_PASSWORD" "key" "authd.pass") | nindent 12 }}
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /wazuh-config-mount/etc/ossec.conf, subPath: ossec.conf, readOnly: true }
+            - { name: host, mountPath: /host, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: host
+          hostPath:
+            path: /
+            type: Directory
+{{- end }}

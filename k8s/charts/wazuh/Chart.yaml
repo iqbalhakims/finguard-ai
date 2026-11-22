@@ -1,0 +1,11 @@
+apiVersion: v2
+name: wazuh
+description: >-
+  Wazuh SIEM for a small cluster, based on wazuh-kubernetes v4.14.10 ("local-env"):
+  one indexer (OpenSearch), one manager, the dashboard, and an agent DaemonSet that
+  watches every node. Ephemeral by design (emptyDir): Wazuh starts empty after each
+  cluster rebuild. No LoadBalancer Services; the dashboard is published through the
+  public Gateway (wazuh.iqbalhakim.site).
+type: application
+version: 0.1.0
+appVersion: "4.14.10"

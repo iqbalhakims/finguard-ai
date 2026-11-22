@@ -1,0 +1,43 @@
+# One tag for every Wazuh image (indexer, manager, dashboard, agent).
+version: "4.14.10"
+
+# SealedSecrets from `make doks-seal-wazuh` (k8s/secrets/wazuh-*.yaml, namespace wazuh).
+secrets:
+  certs: wazuh-certs              # root-ca, node, admin, dashboard, filebeat (PEM)
+  credentials: wazuh-credentials  # passwords + the indexer's internal_users.yml
+
+# Public URL (route: k8s/values/public-gateway.yaml, extraRoutes "wazuh").
+publicUrl: https://wazuh.iqbalhakim.site
+
+# Requests are set low so Wazuh fits next to the rest of the stack; limits follow upstream
+# (manager raised to 1 GiB: vulnerability detection loads its CVE feed into memory).
+indexer:
+  javaOpts: "-Xms1g -Xmx1g -Dlog4j2.formatMsgNoLookups=true"
+  dataSizeLimit: 5Gi              # emptyDir: indices are gone after a cluster rebuild
+  resources:
+    requests: { cpu: 300m, memory: 1536Mi }
+    limits: { cpu: "1", memory: 2Gi }
+
+manager:
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+dashboard:
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+# Agent on every node: file integrity of the host's /etc and binaries, rootkit checks on the
+# host filesystem, host logs, processes and ports. Package/OS inventory and SCA are off: the
+# agent container's own OS (not the node's) would be reported.
+agent:
+  enabled: true
+  # Node log files to read (paths under /host = the node's root filesystem). DOKS nodes
+  # (Debian 13) have no syslog daemon: system logs are only in the journal, and the agent
+  # image has no libsystemd to read it. dpkg.log gives "package installed/removed" alerts.
+  logFiles:
+    - /host/var/log/dpkg.log
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 300m, memory: 512Mi }

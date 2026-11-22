@@ -1,0 +1,34 @@
+# Wazuh SIEM (k8s/charts/wazuh): indexer, manager, dashboard + an agent on every node.
+# Ephemeral: starts empty after each cluster rebuild. Dashboard at
+# https://wazuh.iqbalhakim.site (public-gateway), login admin / k8s/.secrets/wazuh/indexer-admin-password.
+# Credentials and TLS: SealedSecrets k8s/secrets/wazuh-*.yaml (make doks-seal-wazuh).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: wazuh
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iqbalhakims/finguard-ai.git
+    targetRevision: main
+    path: k8s/charts/wazuh
+    helm:
+      releaseName: wazuh
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: wazuh
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:                    # the SealedSecrets (secrets app) may land a moment later
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

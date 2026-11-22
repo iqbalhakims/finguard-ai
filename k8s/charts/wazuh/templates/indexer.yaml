@@ -1,0 +1,120 @@
+{{- $name := "wazuh-indexer" -}}
+{{- $sel := dict "app.kubernetes.io/name" $name -}}
+{{- $config := include "wazuh.indexerConfig" . -}}
+# Wazuh indexer (OpenSearch), single node. Differences from wazuh-kubernetes local-env:
+#   - discovery.type single-node + no mmap: no privileged init container raising
+#     vm.max_map_count on the host
+#   - data on an emptyDir (no PVC that would outlive the daily cluster)
+#   - TLS identities from our own CA (make doks-seal-wazuh), DNs below must match it
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+data:
+  opensearch.yml: |
+    {{- $config | nindent 4 }}
+---
+# REST API for the manager (Filebeat, vulnerability detection) and the dashboard.
+# The name "indexer" is what the Wazuh configs and the node certificate expect.
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexer
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  selector:
+    {{- toYaml $sel | nindent 4 }}
+  ports:
+    - { name: rest, port: 9200, targetPort: rest }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- toYaml $sel | nindent 4 }}
+  ports:
+    - { name: transport, port: 9300, targetPort: transport }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- toYaml $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 8 }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: indexer
+          image: wazuh/wazuh-indexer:{{ .Values.version }}
+          env:
+            - name: OPENSEARCH_JAVA_OPTS
+              value: {{ .Values.indexer.javaOpts | quote }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DISABLE_INSTALL_DEMO_CONFIG
+              value: "true"
+          ports:
+            - { name: rest, containerPort: 9200 }
+            - { name: transport, containerPort: 9300 }
+          readinessProbe:
+            tcpSocket:
+              port: rest
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.indexer.resources | nindent 12 }}
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ["SYS_CHROOT"]
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/wazuh-indexer }
+            - { name: config, mountPath: /usr/share/wazuh-indexer/config/opensearch.yml, subPath: opensearch.yml, readOnly: true }
+            - { name: users, mountPath: /usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml, subPath: internal_users.yml, readOnly: true }
+            {{- range list "root-ca.pem" "node.pem" "node-key.pem" "admin.pem" "admin-key.pem" }}
+            - { name: certs, mountPath: /usr/share/wazuh-indexer/config/certs/{{ . }}, subPath: {{ . }}, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: {{ .Values.indexer.dataSizeLimit }}
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: certs
+          secret:
+            secretName: {{ .Values.secrets.certs }}
+            defaultMode: 0600
+        - name: users
+          secret:
+            secretName: {{ .Values.secrets.credentials }}
+            defaultMode: 0600
+            items:
+              - { key: internal_users.yml, path: internal_users.yml }

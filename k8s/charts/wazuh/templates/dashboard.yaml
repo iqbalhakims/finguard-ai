@@ -1,0 +1,85 @@
+{{- $name := "wazuh-dashboard" -}}
+{{- $sel := dict "app.kubernetes.io/name" $name -}}
+{{- $config := include "wazuh.dashboardConfig" . -}}
+# Wazuh dashboard. Plain HTTP inside the cluster: TLS ends at the public Gateway
+# (https://wazuh.iqbalhakim.site). Log in as "admin" (the indexer admin password).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+data:
+  opensearch_dashboards.yml: |
+    {{- $config | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  selector:
+    {{- toYaml $sel | nindent 4 }}
+  ports:
+    - { name: http, port: 5601, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- toYaml $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 8 }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: dashboard
+          image: wazuh/wazuh-dashboard:{{ .Values.version }}
+          env:
+            - name: INDEXER_USERNAME
+              value: admin
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "INDEXER_PASSWORD" "key" "indexer-admin-password") | nindent 12 }}
+            - name: DASHBOARD_USERNAME
+              value: kibanaserver
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "DASHBOARD_PASSWORD" "key" "kibanaserver-password") | nindent 12 }}
+            - name: SERVER_SSL_ENABLED
+              value: "false"
+            - name: WAZUH_API_URL
+              value: https://wazuh
+            - name: API_USERNAME
+              value: wazuh-wui
+            {{- include "wazuh.secretEnv" (dict "root" $ "name" "API_PASSWORD" "key" "api-password") | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 5601 }
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml, subPath: opensearch_dashboards.yml }
+            - { name: certs, mountPath: /usr/share/wazuh-dashboard/certs/root-ca.pem, subPath: root-ca.pem, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: certs
+          secret:
+            secretName: {{ .Values.secrets.certs }}
+            items:
+              - { key: root-ca.pem, path: root-ca.pem }
