@@ -25,8 +25,8 @@ resource "digitalocean_kubernetes_cluster" "this" {
     node_count = var.node_count
   }
 
-  # Destroy order: remove the cluster (which detaches the volume) before the volume.
-  depends_on = [digitalocean_volume.prometheus]
+  # Destroy order: remove the cluster (which detaches the volumes) before the volumes.
+  depends_on = [digitalocean_volume.prometheus, digitalocean_volume.loki]
 }
 
 # The cluster resource gained `count`; keep any existing state entry instead of
@@ -51,5 +51,21 @@ resource "digitalocean_volume" "prometheus" {
     # The DigitalOcean CSI driver tags the volume "k8s:<cluster-id>" when a cluster
     # attaches it; every rebuild adds a new one. Don't fight it on each apply.
     ignore_changes = [tags]
+  }
+}
+
+# Persistent disk for Loki (logs), mounted the same way through a static
+# PersistentVolume in k8s/values/loki.yaml (volumeHandle = loki_volume_id output,
+# filled in by `make doks-volume`). Separate from Prometheus so a burst of logs can
+# never fill the metrics disk.
+resource "digitalocean_volume" "loki" {
+  name                    = "${var.cluster_name}-loki"
+  region                  = var.region
+  size                    = var.loki_volume_size_gb
+  initial_filesystem_type = "ext4"
+  description             = "FinGuard AI Loki logs (7 days)"
+
+  lifecycle {
+    ignore_changes = [tags] # CSI "k8s:<cluster-id>" tags, as for the Prometheus volume
   }
 }

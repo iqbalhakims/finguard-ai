@@ -39,3 +39,9 @@ variable "prometheus_volume_size_gb" {
   type        = number
   default     = 5
 }
+
+variable "loki_volume_size_gb" {
+  description = "Size of the Loki (logs) block storage volume (GiB)."
+  type        = number
+  default     = 5
+}

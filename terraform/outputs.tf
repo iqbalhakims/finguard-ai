@@ -20,3 +20,8 @@ output "prometheus_volume_id" {
   description = "PersistentVolume volumeHandle in k8s/values/kube-prometheus-stack.yaml (set by make doks-volume)."
   value       = digitalocean_volume.prometheus.id
 }
+
+output "loki_volume_id" {
+  description = "PersistentVolume volumeHandle in k8s/values/loki.yaml (set by make doks-volume)."
+  value       = digitalocean_volume.loki.id
+}
