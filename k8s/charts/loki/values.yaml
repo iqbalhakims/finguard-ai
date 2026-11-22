@@ -1,0 +1,22 @@
+image:
+  repository: grafana/loki
+  tag: "3.7.10"
+
+# How long logs are kept (the compactor deletes older chunks).
+retention: 168h
+
+# Storage. With volumeHandle empty, logs live in an emptyDir and reset with the pod.
+# On DOKS (k8s/values/loki.yaml) it is the Terraform volume finguard-loki, bound
+# through a static PersistentVolume, so logs survive the daily cluster rebuild.
+persistence:
+  volumeHandle: ""
+  size: 5Gi
+  storageClassName: do-block-storage
+emptyDirSizeLimit: 2Gi
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

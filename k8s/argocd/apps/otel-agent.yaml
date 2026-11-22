@@ -1,0 +1,108 @@
+# OpenTelemetry Collector as a DaemonSet (same chart and image as otel-collector):
+# reads every pod's log files on its node (/var/log/pods), adds Kubernetes attributes
+# and sends them to Loki over OTLP. Logs only: traces keep going through otel-collector.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: 0.178.2
+    helm:
+      releaseName: otel-agent
+      valuesObject:
+        mode: daemonset
+        fullnameOverride: otel-agent
+        image:
+          repository: otel/opentelemetry-collector-contrib
+          tag: "0.163.2"
+        presets:
+          logsCollection:
+            enabled: true
+            storeCheckpoints: true   # remembers file offsets: no duplicates after a restart
+          kubernetesAttributes:
+            enabled: true            # k8s.namespace.name, k8s.pod.name, k8s.deployment.name ...
+        # Nothing listens: this collector only reads files.
+        ports:
+          otlp: { enabled: false }
+          otlp-http: { enabled: false }
+          jaeger-compact: { enabled: false }
+          jaeger-thrift: { enabled: false }
+          jaeger-grpc: { enabled: false }
+          zipkin: { enabled: false }
+        service:
+          enabled: false
+        config:
+          receivers:
+            filelog:
+              # The cluster is rebuilt every day: also ship the logs written before this
+              # pod started (Argo CD syncs, first API requests). Checkpoints prevent repeats.
+              start_at: beginning
+            otlp: null
+            jaeger: null
+            zipkin: null
+            prometheus: null
+          processors:
+            k8sattributes:
+              extract:
+                # Replaces the preset's list, which also derives service.name / service.*
+                # itself (from app.kubernetes.io/instance first: "finguard" for every
+                # FinGuard pod). Loki turns these into labels: k8s_namespace_name ...
+                metadata:
+                  - k8s.namespace.name
+                  - k8s.pod.name
+                  - k8s.node.name
+                  - k8s.deployment.name
+                  - k8s.statefulset.name
+                  - k8s.daemonset.name
+                  - k8s.job.name
+                # service.name = the pod's app.kubernetes.io/name label (FinGuard pods:
+                # finguard-api), the same name its traces carry, so Grafana can jump from
+                # a trace in Tempo to its log lines in Loki.
+                labels:
+                  - tag_name: service.name
+                    key: app.kubernetes.io/name
+                    from: pod
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    # Pods without that label (CoreDNS, Cilium ...): use the container name.
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+            batch: {}
+            memory_limiter:
+              check_interval: 5s
+              limit_percentage: 80
+              spike_limit_percentage: 25
+          exporters:
+            otlphttp/loki:
+              endpoint: http://loki.observability.svc:3100/otlp
+          service:
+            pipelines:
+              logs:
+                receivers: [filelog]
+                processors: [memory_limiter, k8sattributes, transform/service-name, batch]
+                exporters: [otlphttp/loki]
+              traces: null
+              metrics: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

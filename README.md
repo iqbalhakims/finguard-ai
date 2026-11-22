@@ -289,6 +289,8 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 | `secrets` | The SealedSecrets in [k8s/secrets/](k8s/secrets/): Grafana login, Cloudflare token | per file |
 | `otel-collector` | Official chart 0.178.2: OTLP traces in (in-cluster without a token, `otel.iqbalhakim.site` with a bearer token) → Tempo | `observability` |
 | `tempo` | [Tempo chart](k8s/charts/tempo/): trace storage (72 h), Grafana datasource | `observability` |
+| `loki` | [Loki chart](k8s/charts/loki/): log storage (7 days) on the **Terraform volume** `finguard-loki`, Grafana datasource | `observability` |
+| `otel-agent` | Official collector chart 0.178.2 as a **DaemonSet**: reads every pod's logs on its node, adds Kubernetes attributes, sends them to Loki (OTLP) | `observability` |
 | `hubble-auth` | [Hubble auth chart](k8s/charts/hubble-auth/): nginx with **basic auth** in front of the Hubble UI that DOKS runs in `kube-system` (Hubble UI has no login of its own) | `monitoring` |
 
 Public: Grafana at `https://grafana.iqbalhakim.site` and the Argo CD UI at
@@ -421,7 +423,15 @@ On DOKS:
 |---|---|---|
 | `otel-collector` | Official chart 0.178.2 (collector-contrib 0.163.2). OTLP in, adds Kubernetes attributes, batches, sends to Tempo | `observability` |
 | `tempo` | Small [chart](k8s/charts/tempo/) running Tempo 2.10 as a single binary, 72 h retention, temporary storage (traces reset on rebuild) | `observability` |
-| Grafana | Tempo datasource; Prometheus exemplars link to it | `grafana.iqbalhakim.site` |
+| `otel-agent` | The same collector as a DaemonSet: every pod's log files → Loki | `observability` |
+| `loki` | Small [chart](k8s/charts/loki/) running Loki 3.7 as a single binary, 7 days, on the Terraform volume `finguard-loki` (logs survive the daily rebuild) | `observability` |
+| Grafana | Tempo and Loki datasources; Prometheus exemplars link to traces, traces link to their logs, log lines link to their trace | `grafana.iqbalhakim.site` |
+
+**Logs:** the **Logs** row at the bottom of the FinGuard dashboard shows API log lines
+by level, error-like lines per namespace across the cluster, and the live API log.
+In **Explore → Loki**, e.g. `{service_name="finguard-api"} |= "blocked"` or
+`{k8s_namespace_name="kube-system"} |~ "(?i)error"`. From a trace in Tempo,
+**Logs for this span** opens its log lines; from a log line, **View trace** opens the trace.
 
 **Service graph:** the traffic simulator plays the card-authorisation system. It
 creates a CLIENT span (`card.authorise`) for each call and passes `traceparent` on,
@@ -510,7 +520,7 @@ finguard/
   model.py             serving bundle (model + thresholds + drift profile)
   simulate.py          traffic generator with live precision/recall
   api/                 FastAPI app, schemas, Prometheus metrics, drift monitor
-k8s/                   Helm charts (finguard, public-gateway, tempo, hubble-auth), values per environment, Argo CD apps, sealed secrets, chaos/ failure scenarios
+k8s/                   Helm charts (finguard, public-gateway, tempo, loki, hubble-auth), values per environment, Argo CD apps, sealed secrets, chaos/ failure scenarios
 compose/               docker-compose Prometheus config (alerts + Grafana files come from the chart)
 tests/                 processing leakage, features, drift, evaluation, API, SHAP additivity
 scripts/               CI model quality gate, DOKS key/certificate backup and restore

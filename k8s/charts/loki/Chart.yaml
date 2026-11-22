@@ -1,0 +1,9 @@
+apiVersion: v2
+name: loki
+description: >-
+  Grafana Loki in single-binary mode for a small cluster: OTLP logs in, local
+  filesystem storage, query API for Grafana. (Grafana's `loki` chart defaults to
+  memcached caches, a canary and a gateway sized for production: ~9 GB of requests.)
+type: application
+version: 0.1.0
+appVersion: "3.7.10"

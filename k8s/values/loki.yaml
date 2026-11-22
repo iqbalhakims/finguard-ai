@@ -1,0 +1,4 @@
+# Loki on DOKS (Argo CD app: k8s/argocd/apps/loki.yaml, chart k8s/charts/loki).
+persistence:
+  # Terraform volume finguard-loki (terraform output loki_volume_id), set by `make doks-volume`.
+  volumeHandle: 5c7f16ae-e639-11f1-a8e6-2e8995875f08   # terraform output loki_volume_id

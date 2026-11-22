@@ -123,6 +123,9 @@ helm-lint: ## Lint and render the charts with every values file
 	helm template public-gateway k8s/charts/public-gateway -n monitoring -f k8s/values/public-gateway.yaml --set host=ci.example.com > /dev/null
 	helm lint k8s/charts/tempo
 	helm template tempo k8s/charts/tempo -n observability > /dev/null
+	helm lint k8s/charts/loki -f k8s/values/loki.yaml
+	helm template loki k8s/charts/loki -n observability > /dev/null
+	helm template loki k8s/charts/loki -n observability -f k8s/values/loki.yaml > /dev/null
 	helm lint k8s/charts/hubble-auth
 	helm template hubble-auth k8s/charts/hubble-auth -n monitoring > /dev/null
 
@@ -133,6 +136,7 @@ DOKS_KUBECTL    := kubectl --context $(DOKS_CONTEXT)
 DOKS_CLUSTER    ?= finguard
 KPS_VALUES      := k8s/values/kube-prometheus-stack.yaml
 GATEWAY_VALUES  := k8s/values/public-gateway.yaml
+LOKI_VALUES     := k8s/values/loki.yaml
 SECRETS_DIR     := k8s/secrets
 BACKUP_DIR      := k8s/.secrets
 ARGOCD_CHART_VERSION := 10.11.6
@@ -222,7 +226,7 @@ doks-down: doks-backup ## Before switching the cluster off: back up keys/cert an
 	if doctl compute load-balancer list --format Name --no-header | grep -qx finguard-public; then \
 	  echo "WARNING: load balancer finguard-public still exists - check before switching off"; exit 1; fi
 	@echo "Load balancer removed. Now in HCP Terraform (workspace finguard-ai): set cluster_enabled = false and start a run."
-	@echo "The Prometheus volume (metrics history) is kept."
+	@echo "The Prometheus (metrics) and Loki (logs) volumes are kept."
 
 doks-up: ## After HCP created the cluster (cluster_enabled=true): kubeconfig, restore keys/cert, Argo CD
 	doctl kubernetes cluster kubeconfig save $(DOKS_CLUSTER) --set-current-context=false
@@ -230,11 +234,15 @@ doks-up: ## After HCP created the cluster (cluster_enabled=true): kubeconfig, re
 	$(MAKE) argocd-bootstrap
 	@echo "Argo CD is syncing (make argocd-status). external-dns points grafana./argo./otel./hubble.iqbalhakim.site at the new IP in ~2 min."
 
-doks-volume: ## Put the Terraform-created Prometheus volume ID into k8s/values/kube-prometheus-stack.yaml
+doks-volume: ## Put the Terraform-created volume IDs into k8s/values/kube-prometheus-stack.yaml and loki.yaml
 	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-prometheus"{print $$1}'); \
 	test -n "$$id" || { echo "volume finguard-prometheus not found: push terraform/ to main (HCP Terraform auto-applies) first"; exit 1; }; \
 	sed -i.orig "s|^        volumeHandle: .*|        volumeHandle: $$id   # terraform output prometheus_volume_id|" $(KPS_VALUES) && \
 	mv $(KPS_VALUES).orig /tmp/; echo "finguard-prometheus -> $$id"
+	@id=$$(doctl compute volume list --format ID,Name --no-header | awk '$$2=="finguard-loki"{print $$1}'); \
+	test -n "$$id" || { echo "volume finguard-loki not found: push terraform/ to main (HCP Terraform auto-applies) first"; exit 1; }; \
+	sed -i.orig "s|^  volumeHandle: .*|  volumeHandle: $$id   # terraform output loki_volume_id|" $(LOKI_VALUES) && \
+	mv $(LOKI_VALUES).orig /tmp/; echo "finguard-loki -> $$id"
 
 doks-set-host: ## Set the public Grafana hostname: make doks-set-host HOST=grafana.example.com
 	@test -n "$(HOST)" || { echo "usage: make doks-set-host HOST=grafana.yourdomain.com"; exit 1; }

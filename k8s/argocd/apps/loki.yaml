@@ -1,0 +1,29 @@
+# Grafana Loki (single binary, k8s/charts/loki): stores logs from the otel-agent
+# DaemonSet on the Terraform volume finguard-loki (7 days); queried by Grafana
+# (datasource "Loki"), linked to Tempo through trace_id.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iqbalhakims/finguard-ai.git
+    targetRevision: main
+    path: k8s/charts/loki
+    helm:
+      releaseName: loki
+      valueFiles:
+        - ../../values/loki.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

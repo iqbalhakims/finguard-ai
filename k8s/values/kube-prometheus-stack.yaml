@@ -91,7 +91,8 @@ grafana:
       # domain here and the host in k8s/values/public-gateway.yaml together.
       domain: grafana.iqbalhakim.site
       root_url: "https://%(domain)s/"
-  # Traces from Tempo (k8s/charts/tempo, fed by the OpenTelemetry Collector).
+  # Traces from Tempo (k8s/charts/tempo, fed by the OpenTelemetry Collector) and logs
+  # from Loki (k8s/charts/loki), linked both ways.
   additionalDataSources:
     - name: Tempo
       uid: tempo
@@ -106,6 +107,31 @@ grafana:
         # "Service Graph" tab: Tempo's metrics-generator writes traces_service_graph_* here.
         serviceMap:
           datasourceUid: prometheus
+        # "Logs for this span": the span's service.name is the Loki label service_name
+        # (set by the otel-agent), and FinGuard log lines carry trace_id=<id>.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          filterByTraceID: true
+          tags:
+            - key: service.name
+              value: service_name
+    # Logs from every pod (k8s/charts/loki, shipped by the otel-agent DaemonSet).
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc:3100
+      jsonData:
+        maxLines: 1000
+        # trace_id=<32 hex> in FinGuard log lines (finguard/api/app.py) -> trace in Tempo.
+        derivedFields:
+          - name: TraceID
+            matcherRegex: "trace_id=([0-9a-f]{32})"
+            datasourceUid: tempo
+            url: "$${__value.raw}"
+            urlDisplayLabel: View trace
   sidecar:
     datasources:
       # Exemplar dots on Prometheus panels link to the trace in Tempo.
