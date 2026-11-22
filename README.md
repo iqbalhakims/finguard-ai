@@ -293,7 +293,7 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 | `loki` | [Loki chart](k8s/charts/loki/): log storage (7 days) on the **Terraform volume** `finguard-loki`, Grafana datasource | `observability` |
 | `otel-agent` | Official collector chart 0.178.2 as a **DaemonSet**: reads every pod's logs on its node, adds Kubernetes attributes, sends them to Loki (OTLP) | `observability` |
 | `hubble-auth` | [Hubble auth chart](k8s/charts/hubble-auth/): nginx with **basic auth** in front of the Hubble UI that DOKS runs in `kube-system` (Hubble UI has no login of its own) | `monitoring` |
-| `wazuh` | [Wazuh chart](k8s/charts/wazuh/) 4.14.10 (SIEM): indexer (OpenSearch), manager, dashboard, and an **agent DaemonSet** watching every node (file integrity of `/etc` and binaries, rootkit checks, processes, ports). Single node, **starts empty after each rebuild**, no LoadBalancer Services | `wazuh` |
+| `wazuh` | [Wazuh chart](k8s/charts/wazuh/) 4.14.10 (SIEM): indexer (OpenSearch), manager, dashboard, and an **agent DaemonSet** watching every node (file integrity of `/etc` and binaries, rootkit checks, processes, ports). Single node, **starts empty after each rebuild**, no LoadBalancer Services. Also ships the Grafana **SOC** dashboard (alerts by severity, host, rule, MITRE ATT&CK, PCI DSS; file-integrity events), read through a read-only indexer user | `wazuh` |
 
 Public: Grafana at `https://grafana.iqbalhakim.site` and the Argo CD UI at
 `https://argo.iqbalhakim.site` (login `admin`, password in
@@ -301,7 +301,8 @@ Public: Grafana at `https://grafana.iqbalhakim.site` and the Argo CD UI at
 rebuilds). The Hubble UI (Cilium network flows) is at `https://hubble.iqbalhakim.site`
 (login `admin`, password in `k8s/.secrets/hubble-ui-password`, sealed by
 `make doks-seal-hubble`). Wazuh is at `https://wazuh.iqbalhakim.site` (login `admin`,
-password in `k8s/.secrets/wazuh/indexer-admin-password`, from `make doks-seal-wazuh`).
+password in `k8s/.secrets/wazuh/indexer-admin-password`, from `make doks-seal-wazuh`); its
+alerts are also on Grafana's "FinGuard AI — SOC" dashboard.
 More hosts go under `extraRoutes` in
 [k8s/values/public-gateway.yaml](k8s/values/public-gateway.yaml). The API and
 Prometheus stay internal (ClusterIP).
@@ -314,7 +315,7 @@ make doks-up                     # kubeconfig + Argo CD (first time: nothing to 
 make doks-seal-grafana           # random Grafana login  -> k8s/secrets/grafana-admin.yaml
 make doks-seal-cloudflare        # Cloudflare API token  -> k8s/secrets/cloudflare-api-token.yaml
 make doks-seal-hubble            # random Hubble UI login -> k8s/secrets/hubble-ui-auth.yaml
-make doks-seal-wazuh             # Wazuh certs + passwords -> k8s/secrets/wazuh-*.yaml
+make doks-seal-wazuh             # Wazuh certs + passwords -> k8s/secrets/wazuh-*.yaml, grafana-wazuh.yaml
 git add k8s/secrets && git commit -m "add sealed secrets" && git push
 ```
 

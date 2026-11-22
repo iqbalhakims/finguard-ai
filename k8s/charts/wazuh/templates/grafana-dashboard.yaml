@@ -1,0 +1,19 @@
+{{- if .Values.grafanaDashboard.enabled }}
+{{- $name := "wazuh-grafana-dashboard" -}}
+# "FinGuard AI — SOC" for kube-prometheus-stack's Grafana: its dashboard sidecar loads every
+# ConfigMap labelled grafana_dashboard=1 in any namespace. Queries go to the "Wazuh"
+# datasource (uid wazuh, k8s/values/kube-prometheus-stack.yaml), i.e. the indexer below.
+# Source of the JSON: files/grafana/soc.json.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: FinGuard
+data:
+  soc.json: |
+    {{- .Files.Get "files/grafana/soc.json" | nindent 4 }}
+{{- end }}

@@ -6,6 +6,11 @@ secrets:
   certs: wazuh-certs              # root-ca, node, admin, dashboard, filebeat (PEM)
   credentials: wazuh-credentials  # passwords + the indexer's internal_users.yml
 
+# "FinGuard AI — SOC" dashboard (files/grafana/soc.json) as a ConfigMap for Grafana's sidecar.
+# Needs the "Wazuh" datasource in k8s/values/kube-prometheus-stack.yaml.
+grafanaDashboard:
+  enabled: true
+
 # Requests are set low so Wazuh fits next to the rest of the stack; limits follow upstream
 # (manager raised to 1 GiB: vulnerability detection loads its CVE feed into memory).
 indexer:

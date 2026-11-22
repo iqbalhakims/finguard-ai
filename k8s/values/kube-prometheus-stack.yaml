@@ -132,6 +132,35 @@ grafana:
             datasourceUid: tempo
             url: "$${__value.raw}"
             urlDisplayLabel: View trace
+    # Wazuh alerts (k8s/charts/wazuh) for the "FinGuard AI — SOC" dashboard, through the
+    # read-only indexer user "grafana". Password and the Wazuh CA come from the SealedSecret
+    # grafana-wazuh (make doks-seal-wazuh); Grafana fills in $WAZUH_* from envValueFrom below.
+    - name: Wazuh
+      uid: wazuh
+      type: grafana-opensearch-datasource
+      access: proxy
+      url: https://indexer.wazuh.svc:9200
+      basicAuth: true
+      basicAuthUser: grafana
+      jsonData:
+        database: "wazuh-alerts-*"
+        timeField: timestamp
+        flavor: opensearch
+        version: "2.19.6"              # wazuh-indexer 4.14 (it reports 7.10.2 for compatibility)
+        maxConcurrentShardRequests: 5
+        logMessageField: full_log
+        logLevelField: rule.level
+        tlsAuthWithCACert: true
+      secureJsonData:
+        basicAuthPassword: $WAZUH_INDEXER_PASSWORD
+        tlsCACert: $WAZUH_INDEXER_CA
+  plugins:
+    - grafana-opensearch-datasource@2.34.6
+  envValueFrom:
+    WAZUH_INDEXER_PASSWORD:
+      secretKeyRef: { name: grafana-wazuh, key: password, optional: true }
+    WAZUH_INDEXER_CA:
+      secretKeyRef: { name: grafana-wazuh, key: root-ca.pem, optional: true }
   sidecar:
     datasources:
       # Exemplar dots on Prometheus panels link to the trace in Tempo.

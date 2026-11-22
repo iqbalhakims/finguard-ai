@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wazuh certificates + passwords -> two SealedSecrets in k8s/secrets/ (namespace wazuh).
+# Wazuh certificates + passwords -> SealedSecrets in k8s/secrets/ (namespaces wazuh, monitoring).
 #
 #   scripts/wazuh_secrets.sh <kube-context>        (make doks-seal-wazuh)
 #
@@ -10,6 +10,8 @@
 #   wazuh-certs        TLS between indexer, manager (Filebeat) and dashboard; one private CA
 #   wazuh-credentials  indexer admin + kibanaserver passwords, the indexer's internal_users.yml
 #                      (bcrypt hashes), the Wazuh API password, the agent enrollment password
+#   grafana-wazuh      (namespace monitoring) Grafana's read-only indexer login + the CA, for
+#                      the SOC dashboard's datasource (k8s/values/kube-prometheus-stack.yaml)
 set -euo pipefail
 
 CONTEXT=${1:?usage: wazuh_secrets.sh <kube-context>}
@@ -33,6 +35,7 @@ rand() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "$1"; }
 [ -f "$DIR/api-password" ]           || printf '%s.Aa1' "$(rand 28)" > "$DIR/api-password"
 [ -f "$DIR/authd-password" ]         || rand 32 > "$DIR/authd-password"
 [ -f "$DIR/cluster-key" ]            || rand 32 > "$DIR/cluster-key"
+[ -f "$DIR/grafana-password" ]       || rand 32 > "$DIR/grafana-password"
 
 # --- certificates (created once) ---------------------------------------------------------
 cert() {  # name, CN, optional subjectAltName
@@ -61,7 +64,9 @@ cert admin admin
 cert dashboard dashboard
 cert filebeat filebeat
 
-# --- indexer users: only admin and kibanaserver (upstream's demo users are left out) -------
+# --- indexer users: admin, kibanaserver, grafana (upstream's demo users are left out) -------
+# grafana: backend role "readall" = the built-in readall role through the image's default
+# roles_mapping.yml (read any index; no writes, no security config).
 hash() { htpasswd -niBC 12 x < "$1" | tr -d '\n' | cut -d: -f2; }
 cat > "$DIR/internal_users.yml" <<EOF
 ---
@@ -78,12 +83,18 @@ kibanaserver:
   hash: "$(hash "$DIR/kibanaserver-password")"
   reserved: true
   description: "Wazuh dashboard server -> indexer"
+grafana:
+  hash: "$(hash "$DIR/grafana-password")"
+  reserved: true
+  backend_roles:
+  - "readall"
+  description: "Grafana SOC dashboard, read-only"
 EOF
 
 # --- seal ---------------------------------------------------------------------------------
-seal() {  # secret name, then kubectl --from-file args
-  local name=$1; shift
-  kubectl create secret generic "$name" -n "$NS" --dry-run=client -o yaml "$@" \
+seal() {  # namespace, secret name, then kubectl --from-file args
+  local ns=$1 name=$2; shift 2
+  kubectl create secret generic "$name" -n "$ns" --dry-run=client -o yaml "$@" \
     | kubeseal --context "$CONTEXT" --format yaml > "$OUT/$name.yaml.tmp"
   test -s "$OUT/$name.yaml.tmp" && mv "$OUT/$name.yaml.tmp" "$OUT/$name.yaml"
   echo "wrote $OUT/$name.yaml"
@@ -92,12 +103,15 @@ certs=()
 for f in root-ca node node-key admin admin-key dashboard dashboard-key filebeat filebeat-key; do
   certs+=(--from-file="$f.pem=$DIR/$f.pem")
 done
-seal wazuh-certs "${certs[@]}"
-seal wazuh-credentials \
+seal "$NS" wazuh-certs "${certs[@]}"
+seal "$NS" wazuh-credentials \
   --from-file=indexer-admin-password="$DIR/indexer-admin-password" \
   --from-file=kibanaserver-password="$DIR/kibanaserver-password" \
   --from-file=internal_users.yml="$DIR/internal_users.yml" \
   --from-file=api-password="$DIR/api-password" \
   --from-file=authd.pass="$DIR/authd-password" \
   --from-file=cluster-key="$DIR/cluster-key"
-echo "Commit both files. Dashboard login: admin / $DIR/indexer-admin-password"
+seal monitoring grafana-wazuh \
+  --from-file=password="$DIR/grafana-password" \
+  --from-file=root-ca.pem="$DIR/root-ca.pem"
+echo "Commit the sealed files. Dashboard login: admin / $DIR/indexer-admin-password"
