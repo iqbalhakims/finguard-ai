@@ -34,7 +34,6 @@ compatibility.override_main_response_version: true
 {{- define "wazuh.dashboardConfig" -}}
 server.host: 0.0.0.0
 server.port: 5601
-server.publicBaseUrl: {{ .Values.publicUrl }}
 server.ssl.enabled: false
 opensearch.hosts: https://indexer:9200
 opensearch.ssl.verificationMode: full
