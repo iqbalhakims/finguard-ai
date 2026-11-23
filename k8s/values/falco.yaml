@@ -1,7 +1,10 @@
 # Falco 0.45 (official chart 9.2.2, Argo CD app: k8s/argocd/apps/falco.yaml): runtime
 # threat detection. A DaemonSet watches every process, file and network syscall on the
-# node through eBPF and reports rule matches as JSON on stdout, which the otel-agent
-# ships to Loki ({service_name="falco"}), plus Prometheus metrics per rule.
+# node through eBPF. Each rule match goes, as JSON, to:
+#   stdout                          -> otel-agent -> Loki ({service_name="falco"})
+#   /var/log/falco/events.json      -> Wazuh agent on the node -> Wazuh alerts (group falco)
+#   Falcosidekick (HTTP)            -> Falcosidekick UI, https://falco.iqbalhakim.site
+# plus Prometheus metrics per rule.
 
 # CO-RE eBPF probe built into Falco: no kernel module, no headers, nothing to compile
 # (DOKS nodes run kernel 6.12 with BTF).
@@ -18,6 +21,49 @@ falco:
   # Default rules (falco_rules.yaml, installed by falcoctl at start) + the FinGuard
   # rules below (customRules -> /etc/falco/rules.d).
   priority: notice
+  # One JSON event per line on the node, read by the Wazuh agent DaemonSet
+  # (k8s/charts/wazuh, agent.jsonLogFiles). Not rotated: nodes are rebuilt daily and a
+  # quiet cluster writes nothing (the intruder scenario: ~1 MB/hour).
+  file_output:
+    enabled: true
+    keep_alive: false
+    filename: /var/log/falco/events.json
+
+mounts:
+  volumes:
+    - name: falco-events
+      hostPath:
+        path: /var/log/falco
+        type: DirectoryOrCreate
+  volumeMounts:
+    - name: falco-events
+      mountPath: /var/log/falco
+
+# Falcosidekick receives every event over HTTP (the chart points Falco's http_output at
+# it) and feeds the Falcosidekick UI, with Redis as the UI's event store.
+falcosidekick:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+  webui:
+    enabled: true
+    replicaCount: 1
+    ttl: 3d                              # events older than this leave Redis
+    # FALCOSIDEKICK_UI_USER=admin:<password>, overriding the chart's admin:admin
+    # (SealedSecret k8s/secrets/falcosidekick-ui-auth.yaml, make doks-seal-falco).
+    existingSecret: falcosidekick-ui-auth
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 128Mi }
+    redis:
+      # No PVC: a dynamically provisioned volume would be left behind (and billed) by
+      # every daily cluster rebuild. Events live in Loki and Wazuh anyway.
+      storageEnabled: false
+      resources:
+        requests: { cpu: 25m, memory: 64Mi }
+        limits: { memory: 256Mi }
 
 # Rule-match counters and Falco's own CPU/memory as Prometheus metrics (:8765/metrics),
 # scraped through a ServiceMonitor; the official Falco Grafana dashboard comes with it.

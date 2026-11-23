@@ -141,6 +141,12 @@ uiSettings.overrides.defaultRoute: /app/wz-home
     <location>{{ . }}</location>
   </localfile>
   {{- end }}
+  {{- range .Values.agent.jsonLogFiles }}
+  <localfile>
+    <log_format>json</log_format>
+    <location>{{ . }}</location>
+  </localfile>
+  {{- end }}
 
   <logging>
     <log_format>plain</log_format>

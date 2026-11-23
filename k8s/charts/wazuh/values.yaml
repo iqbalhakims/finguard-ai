@@ -40,6 +40,10 @@ agent:
   # image has no libsystemd to read it. dpkg.log gives "package installed/removed" alerts.
   logFiles:
     - /host/var/log/dpkg.log
+  # One JSON object per line, decoded field by field. Falco's events (k8s/values/falco.yaml,
+  # file_output) become alerts through files/falco_rules.xml.
+  jsonLogFiles:
+    - /host/var/log/falco/events.json
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { cpu: 300m, memory: 512Mi }

@@ -1,6 +1,7 @@
 {{- $name := "wazuh-manager" -}}
 {{- $sel := dict "app.kubernetes.io/name" $name -}}
 {{- $config := .Files.Get "files/manager-ossec.conf" -}}
+{{- $falcoRules := .Files.Get "files/falco_rules.xml" -}}
 # Wazuh manager: one node (cluster mode off), so the master also takes agent events on 1514.
 # Its state lives in the container filesystem: gone after a restart, like the indexer's.
 apiVersion: v1
@@ -12,6 +13,11 @@ metadata:
 data:
   ossec.conf: |
     {{- $config | nindent 4 }}
+  # Falco events read by the agents (agent.jsonLogFiles) -> Wazuh alerts, group "falco".
+  # The image copies /wazuh-config-mount/* over /var/ossec at start: etc/rules is the
+  # user-defined rule_dir in ossec.conf.
+  falco_rules.xml: |
+    {{- $falcoRules | nindent 4 }}
 ---
 # API (dashboard -> manager), agent enrollment and agent events. In-cluster only.
 # The name "wazuh" matches the upstream manifests and the dashboard's default API host.
@@ -59,7 +65,7 @@ spec:
       labels:
         {{- include "wazuh.labels" (dict "root" $ "name" $name) | nindent 8 }}
       annotations:
-        checksum/config: {{ $config | sha256sum | trunc 16 }}
+        checksum/config: {{ print $config $falcoRules | sha256sum | trunc 16 }}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -101,6 +107,7 @@ spec:
               add: ["SYS_CHROOT"]
           volumeMounts:
             - { name: config, mountPath: /wazuh-config-mount/etc/ossec.conf, subPath: ossec.conf, readOnly: true }
+            - { name: config, mountPath: /wazuh-config-mount/etc/rules/falco_rules.xml, subPath: falco_rules.xml, readOnly: true }
             - { name: authd, mountPath: /wazuh-config-mount/etc/authd.pass, subPath: authd.pass, readOnly: true }
             - { name: certs, mountPath: /etc/ssl/root-ca.pem, subPath: root-ca.pem, readOnly: true }
             - { name: certs, mountPath: /etc/ssl/filebeat.pem, subPath: filebeat.pem, readOnly: true }

@@ -211,6 +211,18 @@ doks-seal-otel: ## Seal a random OTLP ingest token for https://otel.iqbalhakim.s
 	test -s $(SECRETS_DIR)/otel-ingest-token.yaml.tmp && mv $(SECRETS_DIR)/otel-ingest-token.yaml.tmp $(SECRETS_DIR)/otel-ingest-token.yaml \
 	  && echo "wrote $(SECRETS_DIR)/otel-ingest-token.yaml (commit it). Clients send: Authorization: Bearer <$(BACKUP_DIR)/otel-ingest-token>"
 
+doks-seal-falco: ## Seal a random login for the Falcosidekick UI, https://falco.iqbalhakim.site (plain copy: k8s/.secrets/falco-ui-password)
+	@command -v kubeseal >/dev/null || { echo "kubeseal not found: brew install kubeseal"; exit 1; }
+	@mkdir -p $(BACKUP_DIR); test -f $(BACKUP_DIR)/falco-ui-password || { \
+	  umask 077; openssl rand -base64 24 | tr -d '/+=\n' > $(BACKUP_DIR)/falco-ui-password; }
+	@# FALCOSIDEKICK_UI_USER=<login>:<password>, built on stdin (printf is a shell builtin: never in argv)
+	@printf 'admin:%s' "$$(cat $(BACKUP_DIR)/falco-ui-password)" \
+	  | $(DOKS_KUBECTL) create secret generic falcosidekick-ui-auth -n falco --dry-run=client -o yaml \
+	    --from-file=FALCOSIDEKICK_UI_USER=/dev/stdin \
+	  | kubeseal --context $(DOKS_CONTEXT) --format yaml > $(SECRETS_DIR)/falcosidekick-ui-auth.yaml.tmp; \
+	test -s $(SECRETS_DIR)/falcosidekick-ui-auth.yaml.tmp && mv $(SECRETS_DIR)/falcosidekick-ui-auth.yaml.tmp $(SECRETS_DIR)/falcosidekick-ui-auth.yaml \
+	  && echo "wrote $(SECRETS_DIR)/falcosidekick-ui-auth.yaml (commit it). Login: admin / $(BACKUP_DIR)/falco-ui-password"
+
 trace-demo: ## Send traced demo checkouts laptop -> API (needs `make doks-forward` running); prints trace IDs for Tempo
 	$(PY) scripts/trace_demo.py --count 6
 

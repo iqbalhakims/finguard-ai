@@ -292,7 +292,7 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 | `tempo` | [Tempo chart](k8s/charts/tempo/): trace storage (72 h), Grafana datasource | `observability` |
 | `loki` | [Loki chart](k8s/charts/loki/): log storage (7 days) on the **Terraform volume** `finguard-loki`, Grafana datasource | `observability` |
 | `otel-agent` | Official collector chart 0.178.2 as a **DaemonSet**: reads every pod's logs on its node, adds Kubernetes attributes, sends them to Loki (OTLP) | `observability` |
-| `falco` | Official chart 9.2.2 (Falco 0.45): **runtime threat detection**. DaemonSet with the modern eBPF probe (no kernel module); default rules + [FinGuard rules](k8s/values/falco.yaml); events → Loki, rule counters → Prometheus, official Falco dashboard | `falco` |
+| `falco` | Official chart 9.2.2 (Falco 0.45): **runtime threat detection**. DaemonSet with the modern eBPF probe (no kernel module); default rules + [FinGuard rules](k8s/values/falco.yaml); events → Loki, **Wazuh** (alerts, group `falco`) and the **Falcosidekick UI** (`falco.iqbalhakim.site`, with Redis, no volume); rule counters → Prometheus, official Falco dashboard | `falco` |
 | `hubble-auth` | [Hubble auth chart](k8s/charts/hubble-auth/): nginx with **basic auth** in front of the Hubble UI that DOKS runs in `kube-system` (Hubble UI has no login of its own) | `monitoring` |
 | `wazuh` | [Wazuh chart](k8s/charts/wazuh/) 4.14.10 (SIEM): indexer (OpenSearch), manager, dashboard, and an **agent DaemonSet** watching every node (file integrity of `/etc` and binaries, rootkit checks, processes, ports). Single node, **starts empty after each rebuild**, no LoadBalancer Services. Also ships the Grafana **SOC** dashboard (alerts by severity, host, rule, MITRE ATT&CK, PCI DSS; file-integrity events), read through a read-only indexer user | `wazuh` |
 
@@ -303,7 +303,9 @@ rebuilds). The Hubble UI (Cilium network flows) is at `https://hubble.iqbalhakim
 (login `admin`, password in `k8s/.secrets/hubble-ui-password`, sealed by
 `make doks-seal-hubble`). Wazuh is at `https://wazuh.iqbalhakim.site` (login `admin`,
 password in `k8s/.secrets/wazuh/indexer-admin-password`, from `make doks-seal-wazuh`); its
-alerts are also on Grafana's "FinGuard AI — SOC" dashboard.
+alerts are also on Grafana's "FinGuard AI — SOC" dashboard. The Falcosidekick UI (Falco
+events) is at `https://falco.iqbalhakim.site` (login `admin`, password in
+`k8s/.secrets/falco-ui-password`, sealed by `make doks-seal-falco`).
 More hosts go under `extraRoutes` in
 [k8s/values/public-gateway.yaml](k8s/values/public-gateway.yaml). The API and
 Prometheus stay internal (ClusterIP).
@@ -317,6 +319,7 @@ make doks-seal-grafana           # random Grafana login  -> k8s/secrets/grafana-
 make doks-seal-cloudflare        # Cloudflare API token  -> k8s/secrets/cloudflare-api-token.yaml
 make doks-seal-hubble            # random Hubble UI login -> k8s/secrets/hubble-ui-auth.yaml
 make doks-seal-wazuh             # Wazuh certs + passwords -> k8s/secrets/wazuh-*.yaml, grafana-wazuh.yaml
+make doks-seal-falco             # random Falcosidekick UI login -> k8s/secrets/falcosidekick-ui-auth.yaml
 git add k8s/secrets && git commit -m "add sealed secrets" && git push
 ```
 
@@ -506,9 +509,19 @@ make chaos S=intruder            # a fake compromised pod: three rules fire ever
 make chaos-off
 ```
 
-Where to look: the **Security · Falco** row at the bottom of the FinGuard dashboard
-(alerts by rule, event details), the official **Falco** dashboard (Falco's own health),
-and **Explore → Loki**: `{service_name="falco"} | json | priority="Warning"`.
+Where to look:
+
+- **Falcosidekick UI**, `https://falco.iqbalhakim.site`: every event with filters by rule,
+  priority, pod and tag (kept 3 days, reset on rebuild).
+- **Wazuh**, next to its own alerts: Falco writes each event to
+  `/var/log/falco/events.json` on the node, the Wazuh agent there reads it as JSON and the
+  manager raises an alert per event ([falco_rules.xml](k8s/charts/wazuh/files/falco_rules.xml):
+  group `falco`, level 3 Notice, 7 Warning, 10 Error, 12 Critical and above), so it is also
+  on Grafana's **SOC** dashboard. Wazuh dashboard: *Threat Hunting*, filter `rule.groups: falco`.
+- **Grafana**: the **Security · Falco** row at the bottom of the FinGuard dashboard, the
+  official **Falco** dashboard (Falco's own health), and **Explore → Loki**:
+  `{service_name="falco"} | json | priority="Warning"`.
+
 Falco only detects; it does not block or kill (that would be Tetragon or Falco Talon).
 
 ## 10 · Drift detection

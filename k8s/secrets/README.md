@@ -12,6 +12,7 @@ Encrypted with the cluster's Sealed Secrets key, safe to commit. Synced by the
 | `wazuh-certs.yaml` | Wazuh TLS: own root CA + indexer, admin, dashboard, Filebeat certificates | `wazuh` | `make doks-seal-wazuh` |
 | `wazuh-credentials.yaml` | Wazuh passwords (indexer `admin` = dashboard login, `kibanaserver`, API `wazuh-wui`, agent enrollment) + the indexer's `internal_users.yml` (incl. read-only `grafana`) | `wazuh` | `make doks-seal-wazuh` |
 | `grafana-wazuh.yaml` | Grafana's read-only Wazuh indexer login (`grafana`) + the Wazuh CA, for the SOC dashboard's datasource | `monitoring` | `make doks-seal-wazuh` |
+| `falcosidekick-ui-auth.yaml` | `FALCOSIDEKICK_UI_USER=admin:<password>` for `https://falco.iqbalhakim.site` | `falco` | `make doks-seal-falco` |
 
 A new cluster generates a new key and could not decrypt these, so `make doks-down`
 backs up the key and `make doks-up` restores it before Argo CD starts. If the backup

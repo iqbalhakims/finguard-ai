@@ -1,0 +1,43 @@
+<!--
+  Falco runtime events (k8s/values/falco.yaml) as Wazuh alerts.
+  Falco writes one JSON event per line to /var/log/falco/events.json on every node; the
+  Wazuh agent there reads it with log_format json (agent.jsonLogFiles), so the fields
+  arrive decoded: rule, priority, output, output_fields.*, tags, hostname, source.
+  Alert level follows the Falco priority. IDs 100500-100509 are reserved for Falco.
+-->
+<group name="falco,">
+
+  <!-- Base: any Falco event (silent on its own, the children below raise the alert). -->
+  <rule id="100500" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="source">^syscall$</field>
+    <field name="rule">\.+</field>
+    <field name="priority">\.+</field>
+    <description>Falco event</description>
+  </rule>
+
+  <rule id="100501" level="3">
+    <if_sid>100500</if_sid>
+    <field name="priority">^Debug$|^Informational$|^Notice$</field>
+    <description>Falco $(priority): $(rule)</description>
+  </rule>
+
+  <rule id="100502" level="7">
+    <if_sid>100500</if_sid>
+    <field name="priority">^Warning$</field>
+    <description>Falco $(priority): $(rule)</description>
+  </rule>
+
+  <rule id="100503" level="10">
+    <if_sid>100500</if_sid>
+    <field name="priority">^Error$</field>
+    <description>Falco $(priority): $(rule)</description>
+  </rule>
+
+  <rule id="100504" level="12">
+    <if_sid>100500</if_sid>
+    <field name="priority">^Critical$|^Alert$|^Emergency$</field>
+    <description>Falco $(priority): $(rule)</description>
+  </rule>
+
+</group>

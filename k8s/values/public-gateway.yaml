@@ -1,4 +1,4 @@
-# Public Grafana, Argo CD, OTLP ingest, Hubble UI and Wazuh on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
+# Public Grafana, Argo CD, OTLP ingest, Hubble UI, Wazuh and Falco UI on DOKS (Argo CD app: k8s/argocd/apps/public-gateway.yaml),
 # installed in the "monitoring" namespace next to kube-prometheus-stack's Grafana.
 gatewayClassName: cilium
 loadBalancerAnnotations:
@@ -38,6 +38,13 @@ extraRoutes:
     service: wazuh-dashboard
     namespace: wazuh
     port: 5601
+  # Falcosidekick UI (Falco runtime events, k8s/values/falco.yaml). Has its own login:
+  # admin / k8s/.secrets/falco-ui-password (SealedSecret falcosidekick-ui-auth).
+  - name: falco
+    host: falco.iqbalhakim.site
+    service: falco-falcosidekick-ui
+    namespace: falco
+    port: 2802
 
 # external-dns keeps the Cloudflare record on the current Gateway IP (k8s/argocd/apps/external-dns.yaml)
 dnsTtl: 60
