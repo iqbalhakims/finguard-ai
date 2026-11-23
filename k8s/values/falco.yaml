@@ -126,3 +126,25 @@ customRules:
         image=%container.image.repository)
       priority: WARNING
       tags: [finguard, process, mitre_execution]
+
+    # Known-good work of the platform's own tools that default rules report (seen on this
+    # cluster): the Wazuh file-integrity scanner hashes /etc/shadow, and Argo CD talks to
+    # the Kubernetes API all day. Exceptions are as narrow as possible: namespace + process.
+    - rule: Read sensitive file untrusted
+      exceptions:
+        - name: wazuh_file_integrity
+          fields: [k8s.ns.name, proc.name]
+          comps: [=, =]
+          values:
+            - [wazuh, wazuh-syscheckd]
+      override:
+        exceptions: append
+
+    - rule: Contact K8S API Server From Container
+      exceptions:
+        - name: gitops_controller
+          fields: k8s.ns.name
+          comps: in
+          values: [argocd]
+      override:
+        exceptions: append
