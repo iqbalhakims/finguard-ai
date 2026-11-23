@@ -1,0 +1,82 @@
+# Falco 0.45 (official chart 9.2.2, Argo CD app: k8s/argocd/apps/falco.yaml): runtime
+# threat detection. A DaemonSet watches every process, file and network syscall on the
+# node through eBPF and reports rule matches as JSON on stdout, which the otel-agent
+# ships to Loki ({service_name="falco"}), plus Prometheus metrics per rule.
+
+# CO-RE eBPF probe built into Falco: no kernel module, no headers, nothing to compile
+# (DOKS nodes run kernel 6.12 with BTF).
+driver:
+  kind: modern_ebpf
+
+# Flush every event immediately, so alerts reach Loki in seconds.
+tty: true
+
+falco:
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+  # Default rules (falco_rules.yaml, installed by falcoctl at start) + the FinGuard
+  # rules below (customRules -> /etc/falco/rules.d).
+  priority: notice
+
+# Rule-match counters and Falco's own CPU/memory as Prometheus metrics (:8765/metrics),
+# scraped through a ServiceMonitor; the official Falco Grafana dashboard comes with it.
+metrics:
+  enabled: true
+  interval: 1m
+  outputRule: false
+  rulesCountersEnabled: true
+  resourceUtilizationEnabled: true
+  stateCountersEnabled: true
+  kernelEventCountersEnabled: true
+  libbpfStatsEnabled: false
+  convertMemoryToMB: true
+  includeEmptyValues: false
+serviceMonitor:
+  create: true
+grafana:
+  dashboards:
+    enabled: true
+
+# Install the rules once at start; no sidecar polling for rule updates (bump the chart).
+falcoctl:
+  artifact:
+    install:
+      enabled: true
+    follow:
+      enabled: false
+
+# Pod and namespace names come from the container runtime; the separate
+# k8s-metacollector Deployment (deployment/node labels) is not worth its CPU here.
+collectors:
+  kubernetes:
+    enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+customRules:
+  finguard-rules.yaml: |-
+    # Only Python runs in the finguard namespace: the API (uvicorn) and the traffic
+    # simulator. Anything else (a shell, find, nc, curl, a dropped binary) is an
+    # intrusion or a debug session (kubectl exec), so report it.
+    - list: finguard_allowed_processes
+      items: [python, python3, python3.12, uvicorn, sleep]   # sleep: the API's preStop hook
+
+    - rule: Unexpected process in FinGuard namespace
+      desc: >
+        A process other than the FinGuard API or simulator started in the finguard
+        namespace (allowlist: finguard_allowed_processes).
+      condition: >
+        spawned_process and container and k8s.ns.name = "finguard"
+        and not proc.name in (finguard_allowed_processes)
+      output: >
+        Unexpected process in finguard namespace (proc=%proc.name cmdline=%proc.cmdline
+        parent=%proc.pname user=%user.name pod=%k8s.pod.name container=%container.name
+        image=%container.image.repository)
+      priority: WARNING
+      tags: [finguard, process, mitre_execution]

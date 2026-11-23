@@ -1,0 +1,33 @@
+# Falco (official chart 9.2.2, Falco 0.45.2) with values and FinGuard rules from this repo
+# (multi-source: chart from falcosecurity, values file via $values).
+# Runtime threat detection: DaemonSet, modern eBPF probe, events -> stdout (JSON) -> Loki,
+# per-rule counters -> Prometheus, official Falco dashboard -> Grafana.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: falco
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  sources:
+    - repoURL: https://falcosecurity.github.io/charts
+      chart: falco
+      targetRevision: 9.2.2
+      helm:
+        releaseName: falco
+        valueFiles:
+          - $values/k8s/values/falco.yaml
+    - repoURL: https://github.com/iqbalhakims/finguard-ai.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: falco
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

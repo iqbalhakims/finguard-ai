@@ -16,7 +16,7 @@
     "to": "now"
   },
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "templating": {
     "list": []
   },
@@ -2858,6 +2858,115 @@
           },
           "queryType": "range",
           "expr": "{service_name=\"finguard-api\"}"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false,
+        "showLabels": false,
+        "showCommonLabels": false
+      }
+    },
+    {
+      "id": 41,
+      "type": "row",
+      "title": "Security  ·  Falco runtime detection (whole cluster)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 97
+      },
+      "panels": []
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Falco alerts by rule",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Falco rule matches per minute (priority Warning and above), from every node. `make chaos S=intruder` makes three rules fire every 30 s. The official Falco dashboard has Falco's own health.",
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 0,
+        "y": 98
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "legendFormat": "{{rule}}",
+          "expr": "sum by (rule) (rate({service_name=\"falco\"} | json rule=\"rule\", priority=\"priority\", output=\"output\" | __error__=\"\" | rule != \"\" | priority=~\"Emergency|Alert|Critical|Error|Warning\" [$__auto])) * 60"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 43,
+      "type": "logs",
+      "title": "Falco events",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Newest first: which rule, which process and command line, which pod and image.",
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 10,
+        "y": 98
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "expr": "{service_name=\"falco\"} | json rule=\"rule\", priority=\"priority\", output=\"output\" | __error__=\"\" | rule != \"\" | line_format \"{{.output}}\""
         }
       ],
       "options": {

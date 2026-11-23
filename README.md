@@ -292,6 +292,7 @@ and Argo CD syncs it (automated sync with prune and self-heal).
 | `tempo` | [Tempo chart](k8s/charts/tempo/): trace storage (72 h), Grafana datasource | `observability` |
 | `loki` | [Loki chart](k8s/charts/loki/): log storage (7 days) on the **Terraform volume** `finguard-loki`, Grafana datasource | `observability` |
 | `otel-agent` | Official collector chart 0.178.2 as a **DaemonSet**: reads every pod's logs on its node, adds Kubernetes attributes, sends them to Loki (OTLP) | `observability` |
+| `falco` | Official chart 9.2.2 (Falco 0.45): **runtime threat detection**. DaemonSet with the modern eBPF probe (no kernel module); default rules + [FinGuard rules](k8s/values/falco.yaml); events → Loki, rule counters → Prometheus, official Falco dashboard | `falco` |
 | `hubble-auth` | [Hubble auth chart](k8s/charts/hubble-auth/): nginx with **basic auth** in front of the Hubble UI that DOKS runs in `kube-system` (Hubble UI has no login of its own) | `monitoring` |
 | `wazuh` | [Wazuh chart](k8s/charts/wazuh/) 4.14.10 (SIEM): indexer (OpenSearch), manager, dashboard, and an **agent DaemonSet** watching every node (file integrity of `/etc` and binaries, rootkit checks, processes, ports). Single node, **starts empty after each rebuild**, no LoadBalancer Services. Also ships the Grafana **SOC** dashboard (alerts by severity, host, rule, MITRE ATT&CK, PCI DSS; file-integrity events), read through a read-only indexer user | `wazuh` |
 
@@ -485,9 +486,30 @@ make chaos-off                   # stop
 | `dns-outage` | simulator can't reach CoreDNS | `→ coredns:53 DROPPED (UDP)`* |
 | `cut-traces` | app + simulator can't reach the OTel Collector | drops to `observability/otel-collector`; predictions keep working |
 | `nxdomain` | a client calls `finguard-apii` | DNS `Non-Existent Domain` answers* |
+| `intruder` | nothing: a compromised pod hunts for SSH keys and tries a reverse shell | little; **Falco** catches it (see below) |
 
 \* Hubble UI hides kube-dns traffic by default: untick **Visual → Hide kube-dns:53 pod**.
 Scenarios are applied with kubectl, not Argo CD, so self-heal leaves them alone.
+
+### Runtime security (Falco)
+
+Network policies and image scanning (Trivy in CI) can't see what a running container
+*does*. Falco watches every process, file and network syscall on the node through
+eBPF and matches them against rules: the default set (a shell spawned in a container,
+searching for private keys, netcat reverse shells, running a dropped binary, ...) plus a
+FinGuard allowlist in [k8s/values/falco.yaml](k8s/values/falco.yaml): only Python (the
+API and the simulator) may run in the `finguard` namespace, so any other process there,
+including a `kubectl exec` debug shell, is reported.
+
+```bash
+make chaos S=intruder            # a fake compromised pod: three rules fire every 30 s
+make chaos-off
+```
+
+Where to look: the **Security · Falco** row at the bottom of the FinGuard dashboard
+(alerts by rule, event details), the official **Falco** dashboard (Falco's own health),
+and **Explore → Loki**: `{service_name="falco"} | json | priority="Warning"`.
+Falco only detects; it does not block or kill (that would be Tetragon or Falco Talon).
 
 ## 10 · Drift detection
 
